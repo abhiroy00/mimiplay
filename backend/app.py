@@ -1,0 +1,1386 @@
+import io
+import speech_recognition as sr
+from pydub import AudioSegment
+from datetime import datetime, timezone, timedelta
+from bson import ObjectId
+import logging
+import asyncio
+import edge_tts
+import tempfile
+import base64
+import html
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+try:
+    import face_recognition
+    _face_recognition_available = True
+except ImportError:
+    _face_recognition_available = False
+    # logger will be available after basicConfig
+    
+from flask import Flask, jsonify, request
+
+from routes.auth_routes import auth_bp
+from routes.admin_routes import admin_bp
+from routes.whatsapp_route import whatsapp_bp
+from routes.parent_routes import parent_bp
+from routes.teacher_routes import teacher_bp
+from extensions import users, attendance_collection, bcrypt, mimi_chats
+import jwt
+
+try:
+    # Prefer the face_detection module inside the face_detection/ folder
+    from face_detection.face_detection import FaceRecognitionSystem
+    _face_detection_available = True
+except Exception as e:
+    # Face detection not available - disable it
+    _face_detection_available = False
+    logger.warning(f"Face detection not available: {e}")
+    FaceRecognitionSystem = None
+from mimi_llm_session import MimiLLMSession
+
+import time
+import traceback
+try:
+    import cv2
+    import numpy as np
+    import face_recognition as _face_recognition_lib
+    _cv_available = True
+except ImportError:
+    _cv_available = False
+
+# ── LLM clients ───────────────────────────────────────────────────────────────
+try:
+    import openai
+    _openai_available = True
+except ImportError:
+    _openai_available = False
+
+try:
+    import anthropic
+    _anthropic_available = True
+except ImportError:
+    _anthropic_available = False
+
+# =============================================================================
+# CONFIG — API keys: use environment only (e.g. export OPENAI_API_KEY=... or mimiplay/.env)
+# =============================================================================
+def _env_secret(name: str):
+    v = os.environ.get(name)
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+
+OPENAI_API_KEY = _env_secret("OPENAI_API_KEY")
+# Singleton clients — har request pe naya object nahi banega
+_openai_client = None
+_anthropic_client = None
+
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is None and _openai_available and OPENAI_API_KEY:
+        _openai_client = openai.OpenAI(api_key=OPENAI_API_KEY, timeout=15.0)
+    return _openai_client
+
+def _get_anthropic_client():
+    global _anthropic_client
+    if _anthropic_client is None and _anthropic_available and ANTHROPIC_API_KEY:
+        _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=12.0)
+    return _anthropic_client
+ANTHROPIC_API_KEY = _env_secret("ANTHROPIC_API_KEY")
+
+# Filled by _run_llm_startup_checks(); exposed on GET /api/health/llm
+LLM_HEALTH = {
+    "openai": "unknown",
+    "openai_detail": None,
+    "anthropic": "unknown",
+    "anthropic_detail": None,
+}
+
+
+def _mask_api_key_for_log(key: str | None) -> str:
+    if not key:
+        return "not set"
+    n = len(key)
+    tail = key[-4:] if n >= 4 else "****"
+    return f"loaded (len={n}, suffix ...{tail})"
+
+
+def _healthcheck_openai_key(key: str | None) -> tuple[str, str | None]:
+    if not key:
+        return "unset", None
+    if not _openai_available:
+        return "skipped", "openai package not installed"
+    try:
+        client = openai.OpenAI(api_key=key, timeout=20.0)
+        client.models.list()
+        return "ok", None
+    except Exception as e:
+        return "fail", str(e)[:300]
+
+
+def _healthcheck_anthropic_key(key: str | None) -> tuple[str, str | None]:
+    if not key:
+        return "unset", None
+    if not _anthropic_available:
+        return "skipped", "anthropic package not installed"
+    try:
+        client = anthropic.Anthropic(api_key=key, timeout=20.0)
+        client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+        return "ok", None
+    except Exception as e:
+        return "fail", str(e)[:300]
+
+
+def _run_llm_startup_checks():
+    """Log key presence (masked) and verify keys against provider APIs."""
+    global LLM_HEALTH
+    logger.info("[LLM] OPENAI_API_KEY %s", _mask_api_key_for_log(OPENAI_API_KEY))
+    logger.info("[LLM] ANTHROPIC_API_KEY %s", _mask_api_key_for_log(ANTHROPIC_API_KEY))
+
+    skip = os.environ.get("SKIP_LLM_HEALTHCHECK", "").lower() in ("1", "true", "yes")
+    if skip:
+        logger.info("[LLM] API health check skipped (SKIP_LLM_HEALTHCHECK=1)")
+        LLM_HEALTH["openai"] = "skipped" if OPENAI_API_KEY else "unset"
+        LLM_HEALTH["openai_detail"] = None
+        LLM_HEALTH["anthropic"] = "skipped" if ANTHROPIC_API_KEY else "unset"
+        LLM_HEALTH["anthropic_detail"] = None
+        return
+
+    o_status, o_err = _healthcheck_openai_key(OPENAI_API_KEY)
+    LLM_HEALTH["openai"] = o_status
+    LLM_HEALTH["openai_detail"] = o_err
+    if o_status == "ok":
+        logger.info("[LLM] OpenAI health: OK (API key accepted)")
+    elif o_status == "unset":
+        logger.warning("[LLM] OpenAI health: no key configured")
+    else:
+        logger.warning("[LLM] OpenAI health: %s%s", o_status, f" — {o_err}" if o_err else "")
+
+    a_status, a_err = _healthcheck_anthropic_key(ANTHROPIC_API_KEY)
+    LLM_HEALTH["anthropic"] = a_status
+    LLM_HEALTH["anthropic_detail"] = a_err
+    if a_status == "ok":
+        logger.info("[LLM] Anthropic health: OK (API key accepted)")
+    elif a_status == "unset":
+        logger.info("[LLM] Anthropic health: no key configured (optional)")
+    else:
+        logger.warning("[LLM] Anthropic health: %s%s", a_status, f" — {a_err}" if a_err else "")
+
+
+_run_llm_startup_checks()
+
+app = Flask(__name__)
+# CORS(app, origins=["https://mimiplay.in", "http://localhost:5173","https://www.mimiplay.in"])
+# ✅ NEW CODE
+CORS(app, origins=[
+    "https://mimiplay.in",
+    "https://www.mimiplay.in",
+    "http://localhost:5173",
+    "http://localhost:5174",   # ← YEH ADD KARO
+    "http://localhost:5175",   # ← optional: future port changes ke liye
+])
+
+
+def _generate_tts_audio_base64(text: str) -> str:
+    """Generates base64 encoded MP3 audio using edge-tts."""
+    if not text:
+        return ""
+    async def generate(text, path):
+        communicate = edge_tts.Communicate(text, voice="en-IN-NeerjaExpressiveNeural", rate="-10%", pitch="+15Hz")
+        await communicate.save(path)
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as f:
+            tmp_path = f.name
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(generate(text, tmp_path))
+        finally:
+            loop.close()
+        with open(tmp_path, 'rb') as f:
+            audio_data = base64.b64encode(f.read()).decode()
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return audio_data
+    except Exception as e:
+        logger.error("Error generating TTS audio: %s", e)
+        return ""
+
+
+@app.route('/speak', methods=['POST'])
+@require_auth_token
+def speak_text():
+    """Generates audio from text using edge-tts and returns it as base64."""
+    data = request.get_json()
+    text = data.get('text', '')
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
+    audio_data = _generate_tts_audio_base64(text)
+    if not audio_data:
+        return jsonify({'error': 'Failed to generate audio'}), 500
+    return jsonify({'audio': audio_data, 'text': text})
+
+
+# System initialize karein — face recognition only if available
+if _face_detection_available and FaceRecognitionSystem:
+    system = FaceRecognitionSystem()
+    logger.info("Face recognition system initialized")
+else:
+    system = None
+    logger.info("Face recognition disabled")
+
+# Session registry — keyed by session_id, one MimiLLMSession per active student
+# Prevents concurrent users from corrupting each other's state
+_mimi_sessions: dict = {}
+_stopped_sessions = set()
+
+def _get_or_create_session(session_id: str, student_name: str = "", student_id=None, student_age: int = 10) -> MimiLLMSession:
+    if session_id not in _mimi_sessions:
+        _mimi_sessions[session_id] = MimiLLMSession(
+            openai_api_key=OPENAI_API_KEY,
+            anthropic_api_key=ANTHROPIC_API_KEY,
+            student_name=student_name,
+            session_id=session_id,
+            student_id=student_id,
+            student_age=student_age,
+        )
+    return _mimi_sessions[session_id]
+
+
+# =============================================================================
+# LLM HELPERS — used by /activity-check AND /generate-activity-questions
+# =============================================================================
+def _call_openai(prompt: str, max_tokens: int = 200) -> dict:
+    if not _openai_available:
+        raise RuntimeError("openai not installed")
+    try:
+        client = _get_openai_client()
+        if not client:
+            raise RuntimeError("OpenAI client unavailable")
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=0.2,
+        )
+        text = resp.choices[0].message.content
+        return _parse_json(text)
+    except Exception as e:
+        logger.error("OpenAI call failed in app.py: %s", e)
+        if "insufficient_quota" in str(e).lower():
+            logger.error("OpenAI Error: Insufficient quota. Check your billing/balance.")
+        raise
+
+
+def _call_openai_raw(prompt: str, max_tokens: int = 1000, temperature: float = 1.0) -> str:
+    """Returns raw text (no JSON parse) — used for question generation. High temp = max variety."""
+    if not _openai_available:
+        raise RuntimeError("openai not installed")
+    client = _get_openai_client()
+    if not client:
+        raise RuntimeError("OpenAI client unavailable")
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    return resp.choices[0].message.content
+
+
+def _call_anthropic(prompt: str, max_tokens: int = 200) -> dict:
+    if not _anthropic_available:
+        raise RuntimeError("anthropic not installed")
+    try:
+        client = _get_anthropic_client()
+        if not client:
+            raise RuntimeError("Anthropic client unavailable")
+        resp = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return _parse_json(resp.content[0].text)
+    except Exception as e:
+        logger.error("Anthropic call failed in app.py: %s", e)
+        raise
+
+
+def _call_anthropic_raw(prompt: str, max_tokens: int = 1000, temperature: float = 1.0) -> str:
+    """Returns raw text (no JSON parse) — used for question generation. High temp = max variety."""
+    if not _anthropic_available:
+        raise RuntimeError("anthropic not installed")
+    client = _get_anthropic_client()
+    if not client:
+        raise RuntimeError("Anthropic client unavailable")
+    resp = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=max_tokens,
+        temperature=temperature,           # <-- was missing before, now passed
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.content[0].text
+
+
+def _parse_json(text: str) -> dict:
+    clean = re.sub(r"```[a-z]*", "", text).replace("```", "").strip()
+    return json.loads(clean)
+
+
+def _build_prompt(word, child_said, activity_name, student_name):
+    return f"""You are a friendly AI teacher evaluating a preschool child's spoken answer.
+
+Activity: {activity_name}
+Target word/answer: {word}
+Child said: "{child_said}"
+Child name: {student_name}
+
+Evaluation rules:
+- CORRECT if child said the target word, even with extra words around it
+- CORRECT if pronunciation is close (e.g. "aipple"="apple", "elefant"="elephant", "bloo"="blue")
+- CORRECT if child said a valid synonym (e.g. "bunny"="rabbit", "auto"="car")
+- INCORRECT only if child said something completely different or said nothing meaningful
+- Score: 10 if correct on first try, 5 if partially correct, 0 if wrong
+- Be very encouraging and warm for a 3-5 year old child
+
+Respond ONLY with valid JSON, no markdown, no extra text:
+{{"correct": true/false, "score": 0/5/10, "feedback": "short warm encouraging message max 12 words", "hint": "simple one-word hint if wrong, else empty string"}}
+
+Examples:
+- word="cat", child_said="I see a cat" -> {{"correct": true, "score": 10, "feedback": "Amazing! You said cat perfectly!", "hint": ""}}
+- word="elephant", child_said="elefant" -> {{"correct": true, "score": 10, "feedback": "Wonderful! That is an elephant!", "hint": ""}}
+- word="blue", child_said="I don't know" -> {{"correct": false, "score": 0, "feedback": "Good try! Let's try again!", "hint": "blue"}}"""
+
+# =============================================================================
+# QUESTION GENERATION PROMPTS — per activity, per difficulty
+# =============================================================================
+QUESTION_PROMPTS = {
+    9: {
+        "easy": (
+            "Generate {count} picture-guess questions for preschool children (easy level, age 3-5). "
+            "Use very common animals and fruits a 3-year-old knows (cat, dog, apple, banana, cow, duck etc). "
+            "For each question: one emoji is shown, child must say the word aloud. "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"emoji":"🐱","answer":"Cat"}}, {{"emoji":"🍎","answer":"Apple"}}, ...]'
+        ),
+        "medium": (
+            "Generate {count} picture-guess questions for preschool children (medium level, age 4-5). "
+            "Use less-common animals, vegetables, transport items (fox, deer, carrot, bus, boat etc). "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"emoji":"🦊","answer":"Fox"}}, {{"emoji":"🥕","answer":"Carrot"}}, ...]'
+        ),
+        "hard": (
+            "Generate {count} picture-guess questions for preschool children (hard level, age 5+). "
+            "Use harder items: professions, space, weather, tools, less-common animals "
+            "(astronaut, rainbow, hammer, penguin, helicopter etc). "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"emoji":"🌈","answer":"Rainbow"}}, {{"emoji":"🔨","answer":"Hammer"}}, ...]'
+        ),
+    },
+    10: {
+        "easy": (
+            "Generate {count} counting questions for preschool children (easy, count 1-5 items). "
+            "Each question shows ONE type of emoji repeated 1 to 5 times. "
+            "Use fun emojis: fruits, animals, stars, balls. "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"display":"🍎🍎🍎","answer":"3","count":3}}, {{"display":"⭐⭐","answer":"2","count":2}}, ...]'
+        ),
+        "medium": (
+            "Generate {count} counting questions for preschool children (medium, count 6-10 items). "
+            "Each question shows ONE emoji repeated 6 to 10 times. "
+            "Use different emojis for each question. "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"display":"🐶🐶🐶🐶🐶🐶🐶","answer":"7","count":7}}, ...]'
+        ),
+        "hard": (
+            "Generate {count} emoji addition problems for preschool children (hard level). "
+            "Show two groups of the SAME emoji separated by +, total between 5 and 10. "
+            "Use a different emoji for each question. "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"display":"🍎🍎🍎 + 🍎🍎","answer":"5","addend1":3,"addend2":2}}, ...]'
+        ),
+    },
+    11: {
+        "easy": (
+            "Generate {count} simple AB repeating pattern questions for preschool children (easy level). "
+            "Use 2-element color emoji or shape emoji patterns. Show 3-4 elements then ?. "
+            "The answer should be a single English word (color or shape name). "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"pattern":"🔴 → 🔵 → 🔴 → ?","answer":"Blue","hint":"Blue"}}, ...]'
+        ),
+        "medium": (
+            "Generate {count} pattern completion questions for preschool children (medium level). "
+            "Mix of: ABC emoji patterns, simple number sequences (1,2,3,?), and (5,4,3,?). "
+            "The answer should be a word (color name or number word like Four, Two). "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"pattern":"1 → 2 → 3 → ?","answer":"Four","hint":"Four"}}, '
+            '{{"pattern":"🟢 → 🟡 → 🔴 → ?","answer":"Green","hint":"Green"}}, ...]'
+        ),
+        "hard": (
+            "Generate {count} hard pattern completion questions for preschool children (hard level). "
+            "Include: skip-counting by 2s or 3s (2,4,6,8,?), decreasing sequences (10,8,6,4,?), "
+            "and multiplication patterns (3,6,9,12,?). Answers must be number words (Eight, Ten, Fifteen etc). "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"pattern":"2 → 4 → 6 → 8 → ?","answer":"Ten","hint":"Ten"}}, ...]'
+        ),
+    },
+    12: {
+        "easy": (
+            "Generate {count} mixed quiz questions for preschool children (easy level). "
+            "Mix of types — include at least one of each: "
+            "picture-guess (common animal/fruit emoji), word (child says the word shown), "
+            "pattern (simple AB). Use easy vocabulary only. "
+            "Return ONLY a valid JSON array, no markdown, no extra text. Use these exact type formats: "
+            '[{{"type":"picture","emoji":"🐱","answer":"Cat"}}, '
+            '{{"type":"word","word":"Dog","emoji":"🐶"}}, '
+            '{{"type":"pattern","pattern":"🔴→🔵→🔴→?","answer":"Red","hint":"Red"}}, ...]'
+        ),
+        "medium": (
+            "Generate {count} mixed quiz questions for preschool children (medium level). "
+            "Mix of: picture-guess (less-common animals), counting (6-10 items), pattern (ABC or number sequence). "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"type":"picture","emoji":"🦁","answer":"Lion"}}, '
+            '{{"type":"count","display":"🌟🌟🌟🌟🌟🌟🌟","answer":"7","count":7}}, '
+            '{{"type":"pattern","pattern":"1→2→3→?","answer":"Four","hint":"Four"}}, ...]'
+        ),
+        "hard": (
+            "Generate {count} mixed quiz questions for preschool children (hard level). "
+            "Mix of: hard picture-guess (vehicles, professions, weather), addition counting, skip-count patterns. "
+            "Return ONLY a valid JSON array, no markdown, no extra text: "
+            '[{{"type":"picture","emoji":"🚁","answer":"Helicopter"}}, '
+            '{{"type":"count","display":"⭐⭐⭐ + ⭐⭐⭐⭐","answer":"7","addend1":3,"addend2":4}}, '
+            '{{"type":"pattern","pattern":"3→6→9→?","answer":"Twelve","hint":"Twelve"}}, ...]'
+        ),
+    },
+}
+
+
+
+
+
+@app.route('/start-mimi-session', methods=['GET', 'POST'])
+@require_auth_token
+def start_mimi_session():
+    body         = request.get_json() or {}
+    student_name = request.args.get('student_name', '') or body.get('student_name', '')
+    session_id   = request.args.get('session_id', '')   or body.get('session_id', '')
+    raw_id       = request.args.get('student_id', '')   or body.get('student_id', '')
+
+    if not student_name or not raw_id:
+        return jsonify({"status": "error", "message": "student_name and student_id are required"}), 400
+
+    try:
+        student_oid = ObjectId(raw_id)
+    except Exception:
+        return jsonify({"status": "error", "message": "Invalid student_id"}), 400
+
+    # Create a fresh session-scoped instance — no shared mutable state between users
+    # Age is kept for compatibility but all responses are standardized for ages 4-14
+    student_age = 10  # default (not used in prompts)
+    try:
+        from extensions import db as _db
+        student_doc = _db["students"].find_one({"_id": student_oid})
+        if student_doc and student_doc.get("age"):
+            student_age = int(student_doc["age"])  # Stored but not used in prompts
+    except Exception as e:
+        logger.warning("[start-mimi-session] Could not fetch student age: %s", e)
+
+    session = _get_or_create_session(session_id, student_name, student_oid, student_age)
+    logger.info("Mimi session started for: %s | id: %s | session: %s (age stored but not used in prompts)",
+                student_name, raw_id, session_id)
+
+    greeting_text  = f"Hi {student_name}! Great to see you. Go ahead and ask me anything."
+    greeting_audio = _generate_tts_audio_base64(greeting_text)
+
+    return jsonify({
+        "status":        "success",
+        "message":       "Mimi LLM session started",
+        "greeting_text": greeting_text,
+        "greeting_audio": greeting_audio,
+    })
+
+@app.route('/mimi-get', methods=['GET'])
+@require_auth_token
+def mimi_get():
+    try:
+        session_id = request.args.get('session_id', '')
+        session    = _mimi_sessions.get(session_id)
+        if not session:
+            return jsonify({'text': None, 'image_url': None, 'yt_video': None,
+                            'action': 'idle', 'has_response': False, 'session_ended': False})
+
+        text   = session.current_text
+        image  = session.current_image or None
+        video  = session.current_video or None
+        action = session.current_action
+
+        if text == 'Thinking...':
+            text = None
+
+        resp = {
+            'text':         text,
+            'image_url':    image,
+            'yt_video':     video,
+            'action':       action,
+            'has_response': bool(text and action not in ('idle', 'listening', 'thinking')),
+            'session_ended': session.session_ended,
+        }
+
+        if text:
+            if session.current_audio_text != text:
+                session.current_audio      = _generate_tts_audio_base64(text)
+                session.current_audio_text = text
+            resp['audio'] = session.current_audio
+
+        return jsonify(resp)
+
+    except Exception as e:
+        logger.error("Error in mimi_get: %s", e)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/mimi-wake', methods=['POST'])
+@require_auth_token
+def mimi_wake():
+    try:
+        if 'audio' not in request.files:
+            return jsonify({"status": "error", "message": "No audio"}), 400
+        audio_file = request.files['audio']
+        with io.BytesIO(audio_file.read()) as raw_buf:
+            audio = AudioSegment.from_file(raw_buf)
+        with io.BytesIO() as wav_buffer:
+            audio.export(wav_buffer, format="wav")
+            wav_buffer.seek(0)
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_buffer) as source:
+                audio_data = recognizer.record(source)
+                text = recognizer.recognize_google(audio_data, language="en-IN").lower()
+
+        logger.info("Wake check transcribed: %s", text[:80])
+        if any(term in text for term in ['mimi', 'alexa', 'alex', 'hey mimi', 'hi mimi']):
+            return jsonify({"status": "success", "wake": True, "text": text})
+        return jsonify({"status": "success", "wake": False, "text": text})
+    except sr.UnknownValueError:
+        return jsonify({"status": "success", "wake": False, "message": "silent"})
+    except Exception as e:
+        logger.error(f"Wake error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/mimi-chat-audio', methods=['POST'])
+@require_auth_token
+def mimi_chat_audio():
+    try:
+        if 'audio' not in request.files:
+            return jsonify({"status": "error", "message": "No audio"}), 400
+
+        session_id   = request.form.get('session_id', '')
+        student_name = request.form.get('student_name', '')
+
+        # Look up or create session (handles reconnects gracefully)
+        session = _mimi_sessions.get(session_id)
+        if not session:
+            session = _get_or_create_session(session_id, student_name)
+
+        audio_file = request.files['audio']
+        with io.BytesIO(audio_file.read()) as raw_buf:
+            audio = AudioSegment.from_file(raw_buf)
+        with io.BytesIO() as wav_buffer:
+            audio.export(wav_buffer, format="wav")
+            wav_buffer.seek(0)
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_buffer) as source:
+                audio_data = recognizer.record(source)
+                text = recognizer.recognize_google(audio_data, language="en-IN")
+
+        logger.info("Audio context transcribed: %s", text[:80])
+        result = session.process_text(text)
+        if result and result.get("text"):
+            session.current_audio      = _generate_tts_audio_base64(result["text"])
+            session.current_audio_text = result["text"]
+            result["audio"]            = session.current_audio
+        return jsonify({"status": "success", "text": text, "data": result})
+    except sr.UnknownValueError:
+        return jsonify({"status": "error", "message": "Could not understand audio"}), 400
+    except Exception as e:
+        logger.error("Chat audio error: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# def _evaluate_activity_answer(word, child_said, activity_name, student_name):
+#     """Helper to judge an answer using LLMs with local fallback."""
+#     logger.info("[activity-eval] word='%s' child_said='%s'", word, child_said)
+#     prompt = _build_prompt(word, child_said, activity_name, student_name)
+
+#     result = None
+#     try:
+#         result = _call_openai(prompt)
+#         logger.info("[activity-eval] OpenAI result: %s", result)
+#     except Exception as e1:
+#         logger.warning("[activity-eval] OpenAI failed: %s", e1)
+def _evaluate_activity_answer(word, child_said, activity_name, student_name):
+    """Helper to judge an answer using LLMs with local fallback."""
+    logger.info("[activity-eval] word='%s' child_said='%s'", word, child_said)
+
+    # Fast path — exact/fuzzy match, LLM call ki zaroorat nahi
+    word_clean  = word.lower().strip()
+    child_clean = child_said.lower().strip().rstrip('.,!? ')
+    if word_clean == child_clean or word_clean in child_clean or child_clean in word_clean:
+        logger.info("[activity-eval] Fast path match — skipping LLM")
+        return {
+            "correct":  True,
+            "feedback": f"Great job! {word} is correct! 🌟",
+            "hint":     "",
+        }
+
+    prompt = _build_prompt(word, child_said, activity_name, student_name)
+
+    result = None
+    try:
+        result = _call_openai(prompt)
+        logger.info("[activity-eval] OpenAI result: %s", result)
+    except Exception as e1:
+        logger.warning("[activity-eval] OpenAI failed: %s", e1)
+
+    if result is None:
+        try:
+            result = _call_anthropic(prompt)
+            logger.info("[activity-eval] Anthropic result: %s", result)
+        except Exception as e2:
+            logger.warning("[activity-eval] Anthropic failed: %s", e2)
+
+    if result is None:
+        logger.warning("[activity-eval] Both LLMs failed — using local fallback")
+        w  = word.lower().strip()
+        c  = child_said.lower().strip().rstrip('.,!? ')
+        ok = (w in c) or (c in w)
+        result = {
+            "correct":  ok,
+            "feedback": f"Great job! {word} is correct! 🌟" if ok else f"Try again! The word is {word}",
+            "hint":     "" if ok else f"Say it slowly: {word}",
+        }
+    return result
+
+
+
+@app.route('/activity-check-audio', methods=['POST'])
+@require_auth_token
+def activity_check_audio():
+    """
+    Transcribe audio AND evaluate activity answer in one go.
+    Accepts: audio file, word, activity_name, student_name
+    Returns: { result: { correct, feedback, hint }, detected_text: "..." }
+    """
+    try:
+        if 'audio' not in request.files:
+            return jsonify({"status": "error", "message": "No audio file"}), 400
+
+        # 1. Extract metadata
+        word          = request.form.get("word", "")
+        activity_name = request.form.get("activity_name", "Activity")
+        student_name  = request.form.get("student_name", "Student")
+        
+        # 2. Transcribe
+        audio_file = request.files['audio']
+        with io.BytesIO(audio_file.read()) as raw_buf:
+            audio = AudioSegment.from_file(raw_buf)
+        with io.BytesIO() as wav_buffer:
+            audio.export(wav_buffer, format="wav")
+            wav_buffer.seek(0)
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_buffer) as source:
+                audio_data = recognizer.record(source)
+                try:
+                    text = recognizer.recognize_google(audio_data, language="en-IN")
+                except sr.UnknownValueError:
+                    logger.info("[activity-audio] Silence/No speech detected")
+                    return jsonify({"status": "nothing_heard", "message": "Silence detected"}), 200
+
+        logger.info("[activity-audio] Transcribed: '%s'", text)
+
+        # 3. Evaluate
+        result = _evaluate_activity_answer(word, text, activity_name, student_name)
+        return jsonify({
+            "status": "success",
+            "result": result,
+            "detected_text": text
+        })
+
+    except Exception as e:
+        logger.error("[activity-check-audio] ERROR: %s", e, exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/generate-activity-questions', methods=['POST'])
+@require_auth_token
+def generate_activity_questions():
+    """
+    Generate fresh LLM questions for activities 9-12.
+    Body: { activity_id, difficulty, count, session_seed }
+    Returns: { questions: [...] }
+
+    Activity 9  — Picture Guess   → [{ emoji, answer }, ...]
+    Activity 10 — Counting Game   → [{ display, answer, count } or { display, answer, addend1, addend2 }, ...]
+    Activity 11 — Pattern Fun     → [{ pattern, answer, hint }, ...]
+    Activity 12 — Quiz Mode       → [{ type, ...fields }, ...]
+    """
+    try:
+        data         = request.get_json() or {}
+        activity_id  = int(data.get("activity_id", 9))
+        difficulty   = data.get("difficulty", "easy")   # easy | medium | hard
+        count        = int(data.get("count", 6))
+        session_seed = data.get("session_seed", "")     # random seed from frontend
+
+        logger.info("[generate-questions] REQUEST: activity=%s, difficulty=%s, count=%s", activity_id, difficulty, count)
+        logger.debug("[generate-questions] OpenAI available: %s, Anthropic available: %s", _openai_available, _anthropic_available)
+
+        # Validate
+        if activity_id not in QUESTION_PROMPTS:
+            return jsonify({"questions": [], "error": "activity_id must be 9, 10, 11, or 12"}), 400
+        if difficulty not in ("easy", "medium", "hard"):
+            difficulty = "easy"
+
+        prompt_template = QUESTION_PROMPTS[activity_id][difficulty]
+        # Inject session_seed so every LLM call gets a slightly different prompt → different questions
+        seed_line = f"\n\nIMPORTANT: Session ID is '{session_seed}'. Generate COMPLETELY DIFFERENT questions than last time. Do NOT repeat previous answers."
+        prompt = prompt_template.format(count=count) + seed_line
+
+        logger.debug("[generate-questions] Prompt length: %d chars", len(prompt))
+
+        # Try OpenAI first, then Anthropic
+        raw = None
+        used_provider = None
+
+        try:
+            if _openai_available and OPENAI_API_KEY:
+                logger.info("[generate-questions] Trying OpenAI...")
+                raw = _call_openai_raw(prompt, max_tokens=1000, temperature=1.0)
+                used_provider = "OpenAI"
+                logger.debug("[generate-questions] OpenAI responded, raw length=%d", len(raw))
+            else:
+                logger.warning("[generate-questions] OpenAI skipped (not available or key not set)")
+        except Exception as e1:
+            logger.error("[generate-questions] OpenAI FAILED: %s: %s", type(e1).__name__, e1)
+
+        if not raw:
+            try:
+                if _anthropic_available and ANTHROPIC_API_KEY:
+                    logger.info("[generate-questions] Trying Anthropic...")
+                    raw = _call_anthropic_raw(prompt, max_tokens=1000, temperature=1.0)
+                    used_provider = "Anthropic"
+                    logger.debug("[generate-questions] Anthropic responded, raw length=%d", len(raw))
+                else:
+                    logger.warning("[generate-questions] Anthropic skipped (not available or key not set)")
+            except Exception as e2:
+                logger.error("[generate-questions] Anthropic FAILED: %s: %s", type(e2).__name__, e2)
+
+        if not raw:
+            logger.error("[generate-questions] BOTH LLMs failed")
+            return jsonify({
+                "questions": [],
+                "error": "LLM unavailable — check your API keys in app.py or environment variables"
+            }), 200
+
+        # Parse the JSON array out of the response
+        try:
+            clean = re.sub(r"```[a-z]*", "", raw).replace("```", "").strip()
+            start = clean.find('[')
+            end   = clean.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                questions = json.loads(clean[start:end + 1])
+                logger.info("[generate-questions] SUCCESS via %s: parsed %d questions", used_provider, len(questions))
+                return jsonify({"questions": questions})
+            else:
+                logger.error("[generate-questions] No JSON array brackets found in response: %s", raw[:200])
+        except Exception as pe:
+            logger.error("[generate-questions] JSON parse error: %s: %s", type(pe).__name__, pe)
+
+        return jsonify({"questions": [], "error": f"Parse failed from {used_provider} — check server logs"}), 200
+
+    except Exception as e:
+        logger.error("[generate-questions] Unexpected error: %s: %s", type(e).__name__, e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/save-activity-result', methods=['POST'])
+@require_auth_token
+def save_activity_result():
+    try:
+        data = request.get_json() or {}
+
+        student_name  = data.get("student_name", "Student")
+        activity_name = data.get("activity_name", "Activity")
+        stars         = min(5, max(0, int(data.get("stars", 0))))
+        score         = int(data.get("score", 0))
+        raw_id        = data.get("student_id", "")
+        qa            = data.get("qa", [])  # list of { question, childSaid, correct }
+
+        # Resolve student_id to ObjectId — reject if missing or invalid
+        try:
+            student_oid = ObjectId(raw_id) if raw_id else None
+        except Exception:
+            student_oid = None
+
+        if not student_oid:
+            return jsonify({"status": "error", "message": "Valid student_id is required"}), 400
+
+        now = datetime.now(timezone.utc)
+        entry = {
+            "student_name":  student_name,
+            "student_id":    student_oid,
+            "activity_id":   data.get("activity_id", 0),
+            "activity_name": activity_name,
+            "stars":         stars,
+            "score":         score,
+            "qa":            qa,
+            "timestamp":     now.isoformat(),
+            "date":          now.strftime("%Y-%m-%d"),
+            "time":          now.strftime("%H:%M:%S"),
+        }
+
+        from extensions import db as mongo_db
+        # Duplicate-request guard: same student + same activity within 30s = skip
+        thirty_sec_ago = (now - timedelta(seconds=30)).isoformat()
+        duplicate = mongo_db["activity_results"].find_one({
+            "student_id":    student_oid,
+            "activity_name": activity_name,
+            "timestamp":     {"$gte": thirty_sec_ago},
+        })
+        if duplicate:
+            logger.warning("[save-activity] Duplicate request ignored for %s / %s", student_name, activity_name)
+            duplicate.pop("_id", None)
+            duplicate["student_id"] = str(student_oid)
+            return jsonify({"status": "success", "entry": duplicate, "duplicate": True})
+
+        mongo_db["activity_results"].insert_one(entry)
+        entry.pop("_id", None)
+        entry["student_id"] = str(student_oid)  # serialize for JSON response
+
+        try:
+            from services.whatsapp_service import send_activity_result_to_parent
+            send_activity_result_to_parent(student_name, activity_name, stars, score, qa)
+        except Exception as wp_err:
+            logger.warning("[WP] WhatsApp send failed: %s", wp_err)
+
+        return jsonify({"status": "success", "entry": entry})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
+
+
+
+@app.route('/stop-face-detect', methods=['GET'])
+@require_auth_token
+def stop_face_detect():
+    """Stop the activity face detection loop."""
+    try:
+        system._activity_detecting = False
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/register-face', methods=['POST'])
+@require_auth_token
+def register_face():
+    try:
+        import cv2
+        import face_recognition as fr
+        import gridfs
+        data = request.get_json() or {}
+        name = (data.get("name") or "").strip()
+        image = data.get("image", "")
+
+        if not name or not image:
+            return jsonify({"status": "error", "message": "Name and Image required"}), 400
+
+        if "," in image: image = image.split(",", 1)[1]
+        img_bytes = base64.b64decode(image)
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+        frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        encodings = fr.face_encodings(rgb, fr.face_locations(rgb))
+        if not encodings:
+            return jsonify({"status": "error", "message": "No face detected"}), 400
+
+        safe_name = re.sub(r'[^a-zA-Z0-9_ ]', '', name).strip().replace(' ', '_')
+
+        from extensions import db as _db
+        try:
+            db_inner = _db
+
+            student_doc = db_inner["students"].find_one(
+                {"name": {"$regex": f"^{name}$", "$options": "i"}}
+            )
+            if not student_doc:
+                return jsonify({"status": "error", "message": "Student not found in database"}), 404
+
+            student_id = str(student_doc["_id"])
+            filename = f"{student_id}.jpg"
+
+            if db_inner.fs.files.find_one({"filename": filename}):
+                return jsonify({"status": "error", "message": "Face already registered for this student"}), 409
+
+            fs = gridfs.GridFS(db_inner)
+            _, jpeg_bytes = cv2.imencode(".jpg", frame)
+            fs.put(jpeg_bytes.tobytes(), filename=filename, student_name=safe_name, student_id=student_id)
+
+            db_inner["students"].update_one(
+                {"_id": student_doc["_id"]},
+                {"$set": {"face_registered": True}}
+            )
+
+            system.known_encodings.append(encodings[0])
+            system.known_names.append(safe_name)
+
+        except Exception:
+            raise
+
+        return jsonify({"status": "success", "name": safe_name})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/get-student-id-by-name', methods=['POST'])
+@require_auth_token
+def get_student_id_by_name():
+    try:
+        data = request.get_json() or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"status": "error", "message": "Name required"}), 400
+
+        from extensions import db as _db
+        student = _db["students"].find_one(
+            {"name": {"$regex": f"^{name}$", "$options": "i"}}
+        )
+
+        if student:
+            return jsonify({
+                "status": "found",
+                "student_id": str(student["_id"]),
+                "student_name": student.get("name", name)
+            })
+        return jsonify({"status": "not_found", "student_id": None})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
+@app.route('/process-frame', methods=['POST'])
+@require_auth_token
+def process_frame():
+    try:
+        import base64, numpy as np
+        # Import globally if possible, or skip if missing
+        import cv2
+        _cv_ok = True
+    except ImportError:
+        _cv_ok = False
+        
+    try:
+        import face_recognition as fr
+        _fr_ok = True
+    except ImportError:
+        _fr_ok = False
+
+    try:
+        if not _cv_ok or not _fr_ok:
+            return jsonify({
+                "status": "error", 
+                "message": "Backend missing face_recognition or opencv. Please install them in your venv."
+            }), 501
+
+        data = request.get_json()
+        img_data = data.get('image', '')
+        if not img_data:
+            return jsonify({"status": "no_image", "person": None})
+            
+        if ',' in img_data:
+            img_data = img_data.split(',')[1]
+            
+        img_bytes = base64.b64decode(img_data)
+        np_arr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return jsonify({"status": "error", "message": "Invalid image data"})
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # Use existing system encodings if available to avoid reloading
+        known_encs = getattr(system, 'known_encodings', [])
+        known_names = getattr(system, 'known_names', [])
+        
+        if not known_encs:
+            return jsonify({"status": "error", "message": "No known faces loaded in system"})
+
+        locations = fr.face_locations(rgb)
+        encodings = fr.face_encodings(rgb, locations)
+        
+        RECOGNITION_THRESHOLD = 0.45
+
+        for enc in encodings:
+            distances = fr.face_distance(known_encs, enc)
+            best_idx = int(np.argmin(distances))
+            distance = float(distances[best_idx])
+
+            logger.info("[ProcessFrame] Best distance: %.4f (threshold: %.2f)", distance, RECOGNITION_THRESHOLD)
+
+            if distance > RECOGNITION_THRESHOLD:
+                logger.info("[ProcessFrame] Unknown face rejected (distance=%.4f)", distance)
+                return jsonify({'person': None, 'status': 'unknown', 'distance': distance})
+
+            matched_name = known_names[best_idx]
+            display_name = matched_name.replace('_', ' ').title()
+            from extensions import db as _db
+            student_doc = _db["students"].find_one(
+                {"name": {"$regex": f"^{matched_name.replace('_', ' ')}", "$options": "i"}}
+            )
+            student_id = str(student_doc["_id"]) if student_doc else None
+            logger.info("[ProcessFrame] Recognised: %s | id: %s | distance: %.4f", display_name, student_id, distance)
+            return jsonify({'person': display_name, 'student_id': student_id, 'status': 'recognised', 'distance': distance})
+
+        return jsonify({'person': None, 'status': 'no_face'})
+    except Exception as e:
+        logger.error("[ProcessFrame] Error: %s", e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/mimi-save-chat', methods=['POST'])
+@require_auth_token
+def mimi_save_chat():
+    """
+    Har ek Q&A ke baad call hota hai.
+    Body: { student_name, student_id, session_id, question, answer, image_url, child_photo_base64 }
+    """
+    try:
+        data         = request.get_json() or {}
+        student_name = data.get("student_name", "Unknown")
+        student_id   = data.get("student_id",   "")
+        session_id   = data.get("session_id",   "")
+        question     = data.get("question",     "")
+        answer       = data.get("answer",       "")
+        image_url    = data.get("image_url",    "")
+        # child_photo  = data.get("child_photo_base64", None)  # base64 string
+
+        now     = datetime.now(timezone.utc)
+        today   = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%I:%M %p")
+
+        # Student DB se dhundho
+        from extensions import students as students_col
+        try:
+            student_doc = students_col.find_one({"name": {"$regex": f"^{student_name}$", "$options": "i"}})
+            if student_doc and not student_id:
+                student_id = str(student_doc["_id"])
+        except Exception as e:
+            logger.warning("[mimi-save-chat] Could not look up student: %s", e)
+
+        # Ek message object banao
+        message_obj = {
+            "question":   question,
+            "answer":     answer,
+            "image_url":  image_url,
+            # "child_photo": child_photo,   # base64 ya None
+            "time":       time_str,
+        }
+
+        # Existing session dhundho ya naya banao
+        existing = mimi_chats.find_one({
+            "session_id":   session_id,
+            "student_name": student_name
+        })
+
+        if existing:
+            # Session exist karta hai — message push karo
+            mimi_chats.update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$push": {"messages": message_obj},
+                    "$set":  {"updated_at": now.isoformat()},
+                    "$inc":  {"total_msgs": 1}
+                }
+            )
+            logger.info(f"[mimi-save-chat] Updated session {session_id} for {student_name}")
+        else:
+            # Naya session banao
+            try:
+                sid_oid = ObjectId(student_id) if student_id else None
+            except Exception as e:
+                logger.warning("[mimi-save-chat] Invalid student_id '%s': %s", student_id, e)
+                sid_oid = None
+
+            mimi_chats.insert_one({
+                "student_id":   sid_oid,
+                "student_name": student_name,
+                "session_id":   session_id,
+                "messages":     [message_obj],
+                "date":         today,
+                "started_at":   now.isoformat(),
+                "updated_at":   now.isoformat(),
+                "total_msgs":   1
+            })
+            logger.info(f"[mimi-save-chat] New session created for {student_name}")
+
+        return jsonify({"status": "success"})
+
+    except Exception as e:
+        logger.error(f"[mimi-save-chat] ERROR: {e}")
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/upload-session-video', methods=['POST'])
+@require_auth_token
+def upload_session_video():
+    """Upload and store session video recording"""
+    try:
+        if 'video' not in request.files:
+            return jsonify({"status": "error", "message": "No video file provided"}), 400
+            
+        video_file = request.files['video']
+        student_id = request.form.get('student_id', '')
+        student_name = request.form.get('student_name', '')
+        session_type = request.form.get('session_type', 'chat')
+        duration = int(request.form.get('duration', 0))
+        recorded_at = request.form.get('recorded_at', datetime.now(timezone.utc).isoformat())
+        
+        if not video_file or video_file.filename == '':
+            return jsonify({"status": "error", "message": "Invalid video file"}), 400
+            
+        # Generate unique filename
+        file_extension = video_file.filename.rsplit('.', 1)[1].lower() if '.' in video_file.filename else 'webm'
+        filename = f"session_{student_id}_{int(time.time())}.{file_extension}"
+        
+        # Save to GridFS (MongoDB file storage)
+        from extensions import db as mongo_db
+        import gridfs
+        
+        fs = gridfs.GridFS(mongo_db)
+        video_id = fs.put(
+            video_file.read(),
+            filename=filename,
+            content_type=video_file.content_type or 'video/webm',
+            student_id=student_id,
+            student_name=student_name,
+            session_type=session_type,
+            duration=duration,
+            recorded_at=recorded_at,
+            upload_date=datetime.now(timezone.utc)
+        )
+        
+        # Store metadata in session_videos collection
+        mongo_db["session_videos"].insert_one({
+            "video_id": video_id,
+            "student_id": ObjectId(student_id) if student_id else None,
+            "student_name": student_name,
+            "session_type": session_type,
+            "filename": filename,
+            "duration": duration,
+            "file_size": len(video_file.read()),
+            "recorded_at": recorded_at,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "status": "uploaded"
+        })
+        
+        logger.info(f"[Video Upload] Saved session video for {student_name} ({session_type})")
+        
+        return jsonify({
+            "status": "success",
+            "video_id": str(video_id),
+            "filename": filename,
+            "message": "Video uploaded successfully"
+        })
+        
+    except Exception as e:
+        logger.error(f"[Video Upload] Error: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/send-video-to-parent', methods=['POST'])
+@require_auth_token
+def send_video_to_parent():
+    """Send session video to parent via WhatsApp"""
+    try:
+        data = request.get_json() or {}
+        video_id = data.get('video_id', '')
+        student_name = data.get('student_name', '')
+        
+        if not video_id or not student_name:
+            return jsonify({"status": "error", "message": "video_id and student_name required"}), 400
+            
+        # Get video metadata
+        from extensions import db as mongo_db
+        video_doc = mongo_db["session_videos"].find_one({"video_id": ObjectId(video_id)})
+        
+        if not video_doc:
+            return jsonify({"status": "error", "message": "Video not found"}), 404
+            
+        # Generate shareable link (valid for 7 days)
+        video_url = f"{request.host_url}api/video/{video_id}?token={generate_video_token(video_id)}"
+        
+        # Send via WhatsApp
+        try:
+            from services.whatsapp_service import send_session_video_to_parent
+            send_session_video_to_parent(
+                student_name=student_name,
+                video_url=video_url,
+                session_type=video_doc.get('session_type', 'session'),
+                duration=video_doc.get('duration', 0)
+            )
+            
+            # Update video status
+            mongo_db["session_videos"].update_one(
+                {"video_id": ObjectId(video_id)},
+                {"$set": {"sent_to_parent": True, "sent_at": datetime.now(timezone.utc).isoformat()}}
+            )
+            
+            return jsonify({"status": "success", "message": "Video sent to parent successfully"})
+            
+        except Exception as wp_err:
+            logger.warning(f"[Video WhatsApp] Failed to send: {wp_err}")
+            return jsonify({"status": "error", "message": "Failed to send video via WhatsApp"}), 500
+            
+    except Exception as e:
+        logger.error(f"[Video Send] Error: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/video/<video_id>', methods=['GET'])
+def serve_video(video_id):
+    """Serve video file with token authentication"""
+    try:
+        token = request.args.get('token', '')
+        
+        # Verify token
+        if not verify_video_token(video_id, token):
+            return jsonify({"error": "Invalid or expired token"}), 403
+            
+        # Get video from GridFS
+        from extensions import db as mongo_db
+        import gridfs
+        
+        fs = gridfs.GridFS(mongo_db)
+        try:
+            video_file = fs.get(ObjectId(video_id))
+        except gridfs.NoFile:
+            return jsonify({"error": "Video not found"}), 404
+            
+        # Stream video file
+        def generate():
+            while True:
+                chunk = video_file.read(8192)  # 8KB chunks
+                if not chunk:
+                    break
+                yield chunk
+                
+        response = Response(
+            generate(),
+            mimetype=video_file.content_type or 'video/webm',
+            headers={
+                'Content-Disposition': f'inline; filename="{video_file.filename}"',
+                'Content-Length': str(video_file.length),
+                'Accept-Ranges': 'bytes'
+            }
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"[Video Serve] Error: {e}", exc_info=True)
+        return jsonify({"error": "Failed to serve video"}), 500
+
+
+def generate_video_token(video_id, expires_in=7*24*3600):  # 7 days
+    """Generate secure token for video access"""
+    import jwt
+    payload = {
+        'video_id': str(video_id),
+        'exp': datetime.now(timezone.utc).timestamp() + expires_in
+    }
+    return jwt.encode(payload, SECRET, algorithm='HS256')
+
+
+def verify_video_token(video_id, token):
+    """Verify video access token"""
+    try:
+        import jwt
+        payload = jwt.decode(token, SECRET, algorithms=['HS256'])
+        return payload.get('video_id') == str(video_id)
+    except Exception:
+        return False
+
+@app.route('/api/mimi/stop-session', methods=['POST'])
+@require_auth_token
+def stop_mimi_session():
+    """Mark session ended, remove it from registry, and optionally send chat history via WhatsApp."""
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('session_id', '')
+        student_name = data.get('student_name', '')
+        send_whatsapp = data.get('send_whatsapp', False)
+
+        # Duplicate request guard
+        if session_id in _stopped_sessions:
+            logger.warning("[stop-session] Duplicate request ignored for session: %s", session_id)
+            return jsonify({'status': 'ok', 'duplicate': True})
+        _stopped_sessions.add(session_id)
+        if len(_stopped_sessions) > 100:
+            _stopped_sessions.clear()
+        
+        session = _mimi_sessions.get(session_id)
+        if session:
+            session.session_ended = True
+            _mimi_sessions.pop(session_id, None)
+            logger.info("[stop-session] Removed session %s", session_id)
+        
+        # Send WhatsApp chat history if requested
+        if send_whatsapp and student_name:
+            try:
+                # Get chat history for this session
+                chat_docs = list(mimi_chats.find({
+                    "session_id": session_id,
+                    "student_name": student_name
+                }))
+                
+                # Extract all messages from all chat documents
+                all_messages = []
+                for doc in chat_docs:
+                    messages = doc.get('messages', [])
+                    all_messages.extend(messages)
+                
+                if all_messages:
+                    from services.whatsapp_service import send_chat_history_to_parent
+                    send_chat_history_to_parent(student_name, all_messages)
+                    logger.info("[stop-session] WhatsApp chat history sent for %s (%d messages)", 
+                               student_name, len(all_messages))
+                else:
+                    logger.info("[stop-session] No chat messages to send for %s", student_name)
+                    
+            except Exception as wp_err:
+                logger.warning("[stop-session] WhatsApp send failed: %s", wp_err)
+        
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+app.register_blueprint(auth_bp)
+app.register_blueprint(admin_bp)
+app.register_blueprint(whatsapp_bp)
+app.register_blueprint(parent_bp)
+app.register_blueprint(teacher_bp)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, port=port, host='0.0.0.0')

@@ -1,0 +1,17 @@
+# Advanced Multi-Tier Memory System Requirements
+# Install these ONLY if you want to use the advanced memory system
+# Basic memory works without these
+
+# Working Memory (Redis)
+redis==5.0.1
+
+# Semantic Memory (PostgreSQL)
+psycopg2-binary==2.9.9
+
+# Episodic & Knowledge Memory (Qdrant + Embeddings)
+qdrant-client==1.7.0
+sentence-transformers==2.3.1
+
+# Optional: For better NLP-based fact extraction
+# spacy==3.7.2
+# en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz

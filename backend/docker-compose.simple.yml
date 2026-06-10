@@ -1,0 +1,75 @@
+# Simplified Docker Compose - Uses existing Redis
+# Use this if you already have Redis running on port 6379
+
+version: '3.8'
+
+services:
+  # PostgreSQL - Semantic Memory
+  postgres:
+    image: postgres:15-alpine
+    container_name: mimi-postgres
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mimipass}
+      POSTGRES_DB: mimidb
+      POSTGRES_USER: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Qdrant - Episodic & Knowledge Memory
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mimi-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Celery Worker - Background Tasks
+  # Uses existing Redis via host.docker.internal
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mimi-celery-worker
+    command: celery -A celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - REDIS_URL=redis://host.docker.internal:6379/0
+      - MONGODB_URI=${MONGODB_URI}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-mimipass}@postgres:5432/mimidb
+      - QDRANT_URL=http://qdrant:6333
+      - USE_ADVANCED_MEMORY=${USE_ADVANCED_MEMORY:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:
+  qdrant_data:
+
+networks:
+  default:
+    name: mimi-network

@@ -1,0 +1,191 @@
+# Docker Compose for Mimi AI with Advanced Memory
+# Includes Redis, PostgreSQL, Qdrant, and Celery for performance
+
+# ============================================================================
+# Mimi AI - Production-Ready Docker Compose
+# Optimized for 1-2 second response times with full memory system
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Redis - Caching + Message Broker (Critical for performance)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: mimi-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+      --tcp-backlog 511
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - mimi-network
+
+  # ===========================================================================
+  # PostgreSQL - Semantic Memory (Facts & Knowledge)
+  # ===========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: mimi-postgres
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mimipass}
+      POSTGRES_DB: mimidb
+      POSTGRES_USER: postgres
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c max_connections=100
+      -c effective_cache_size=1GB
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - mimi-network
+
+  # ===========================================================================
+  # Qdrant - Vector Database (Episodic & Knowledge Memory)
+  # ===========================================================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mimi-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__LOG_LEVEL: INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    networks:
+      - mimi-network
+
+  # ===========================================================================
+  # Celery Worker - Background Task Processing
+  # ===========================================================================
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mimi-celery-worker
+    command: celery -A celery_app worker --loglevel=info --concurrency=4 --max-tasks-per-child=1000
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URI=${MONGODB_URI}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      - SECRET=${SECRET}
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-mimipass}@postgres:5432/mimidb
+      - QDRANT_URL=http://qdrant:6333
+      - USE_ADVANCED_MEMORY=${USE_ADVANCED_MEMORY:-false}
+      - ENABLE_RESPONSE_CACHE=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    networks:
+      - mimi-network
+
+  # ===========================================================================
+  # Flask API - Main Application Server
+  # ===========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mimi-app
+    command: gunicorn app:app --bind 0.0.0.0:5000 --workers 2 --worker-class gevent --worker-connections 1000 --timeout 60 --keep-alive 5 --access-logfile - --error-logfile -
+    ports:
+      - "5000:5000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URI=${MONGODB_URI}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      - SECRET=${SECRET}
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-mimipass}@postgres:5432/mimidb
+      - QDRANT_URL=http://qdrant:6333
+      - USE_ADVANCED_MEMORY=${USE_ADVANCED_MEMORY:-false}
+      - USE_CELERY=true
+      - ENABLE_RESPONSE_CACHE=true
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_WHATSAPP_NUMBER=${TWILIO_WHATSAPP_NUMBER}
+      - TWILIO_TEST_NUMBER=${TWILIO_TEST_NUMBER}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      celery-worker:
+        condition: service_started
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mimi-network
+
+# =============================================================================
+# Volumes - Persistent Data Storage
+# =============================================================================
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  qdrant_data:
+    driver: local
+
+# =============================================================================
+# Networks - Container Communication
+# =============================================================================
+networks:
+  mimi-network:
+    driver: bridge
+    name: mimi-network
