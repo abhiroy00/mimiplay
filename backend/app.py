@@ -1328,7 +1328,7 @@ def verify_video_token(video_id, token):
 def stop_mimi_session():
     """Mark session ended, remove it from registry, and optionally send chat history via WhatsApp."""
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         session_id = data.get('session_id', '')
         student_name = data.get('student_name', '')
         send_whatsapp = data.get('send_whatsapp', False)
@@ -1375,6 +1375,7 @@ def stop_mimi_session():
         
         return jsonify({'status': 'ok'})
     except Exception as e:
+        logger.error("[stop-session] Unexpected error: %s", e, exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

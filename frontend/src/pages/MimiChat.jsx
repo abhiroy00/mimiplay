@@ -583,6 +583,11 @@ const MimiChat = () => {
 
   // ── Mimi session ─────────────────────────────────────────────
   const startMimiSession = useCallback(async (name) => {
+    // Guard: prevent double-call from async face polling race condition
+    if (sessionIdRef.current) {
+      console.log('[Mimi] Session already active, skipping duplicate call')
+      return
+    }
     const sid = generateSessionId()
     setSessionId(sid)
     sessionIdRef.current   = sid
@@ -628,15 +633,22 @@ const MimiChat = () => {
     stopVAD()
     stopWebcam()
 
+    const sid  = sessionIdRef.current
+    const name = studentNameRef.current
+    sessionIdRef.current   = ''
+    studentNameRef.current = ''
+
     try {
-      await axios.post(API_ENDPOINTS.MIMI_STOP_SESSION)
+      await axios.post(API_ENDPOINTS.MIMI_STOP_SESSION,
+        { session_id: sid, student_name: name, send_whatsapp: false }
+      )
     } catch (e) {
       console.error('Stop error:', e)
     }
 
     setSessionState('stopped')
     setIsSpeaking(false)
-  }, [stopWebcam])
+  }, [stopWebcam, stopVAD])
 
   // ── Typewriter ────────────────────────────────────────────────
   useEffect(() => {
