@@ -229,12 +229,31 @@ const MimiChat = () => {
   const videoRef        = useRef(null)
   const canvasRef       = useRef(null)
   const [webcamActive,  setWebcamActive] = useState(false)
+  const [showManualEntry, setShowManualEntry] = useState(false)
+  const [manualName,    setManualName]   = useState('')
 
-  const pollingRef      = useRef(null)
-  const facePollingRef  = useRef(null)
-  const lastAnswerRef   = useRef('')
-  const lastActionRef   = useRef('')
-  const chatHistoryRef  = useRef([])
+  // VAD status: 'idle' | 'listening' | 'user_speaking' | 'thinking' | 'mimi_speaking'
+  const [vadStatus,     setVadStatus]     = useState('idle')
+
+  const pollingRef       = useRef(null)
+  const facePollingRef   = useRef(null)
+  const faceTimeoutRef   = useRef(null)
+  const lastAnswerRef    = useRef('')
+  const lastActionRef    = useRef('')
+  const chatHistoryRef   = useRef([])
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef   = useRef([])
+  const sessionIdRef     = useRef('')
+  const studentNameRef   = useRef('')
+  // VAD refs
+  const audioContextRef   = useRef(null)
+  const analyserRef       = useRef(null)
+  const micStreamRef      = useRef(null)
+  const vadIntervalRef    = useRef(null)
+  const silenceTimerRef   = useRef(null)
+  const isRecordingRef    = useRef(false)
+  const isMimiSpeakingRef = useRef(false)
+  const speechStartRef    = useRef(0)
 
   useEffect(() => {
     chatHistoryRef.current = chatHistory
@@ -280,8 +299,15 @@ const MimiChat = () => {
     lastAnswerRef.current  = ''
     lastActionRef.current  = ''
     setLastQuestion('')
+    setShowManualEntry(false)
+    setManualName('')
 
     await startWebcam()
+
+    // After 30s of no recognition, show manual entry fallback
+    faceTimeoutRef.current = setTimeout(() => {
+      setShowManualEntry(true)
+    }, 30000)
 
     facePollingRef.current = setInterval(async () => {
       if (!videoRef.current || !canvasRef.current || !videoRef.current.srcObject) {
@@ -306,8 +332,11 @@ const MimiChat = () => {
           console.log("[FaceDetect] RECOGNIZED:", data.person);
           const name = data.person.replace(/_/g, ' ').trim()
           clearInterval(facePollingRef.current)
+          clearTimeout(faceTimeoutRef.current)
           facePollingRef.current = null
+          faceTimeoutRef.current = null
           stopWebcam()
+          setShowManualEntry(false)
           setStudentName(name)
           startMimiSession(name)
         } else {
@@ -317,23 +346,286 @@ const MimiChat = () => {
     }, 2000) // Poll every 1s to be safe and reduce load
   }, [stopWebcam]) // eslint-disable-line
 
+  // ── Play Mimi's audio response, then resume listening ─────────
+  const playMimiAudio = useCallback((base64audio, onDone) => {
+    isMimiSpeakingRef.current = true
+    setVadStatus('mimi_speaking')
+    setIsSpeaking(true)
+    try {
+      const url   = URL.createObjectURL(
+        new Blob([Uint8Array.from(atob(base64audio), c => c.charCodeAt(0))], { type: 'audio/mp3' })
+      )
+      const audio = new Audio(url)
+      audio.play().catch(() => {})
+      audio.onended = () => {
+        URL.revokeObjectURL(url)
+        isMimiSpeakingRef.current = false
+        setIsSpeaking(false)
+        setVadStatus('listening')
+        if (recognitionRef.current && sessionIdRef.current) {
+          try { recognitionRef.current.start() } catch {}
+        }
+        onDone && onDone()
+      }
+      audio.onerror = () => {
+        isMimiSpeakingRef.current = false
+        setIsSpeaking(false)
+        setVadStatus('listening')
+        if (recognitionRef.current && sessionIdRef.current) {
+          try { recognitionRef.current.start() } catch {}
+        }
+        onDone && onDone()
+      }
+    } catch {
+      isMimiSpeakingRef.current = false
+      setIsSpeaking(false)
+      setVadStatus('listening')
+      onDone && onDone()
+    }
+  }, [])
+
+  // ── Send speech blob → get Mimi's reply ───────────────────────
+  const sendAudioToMimi = useCallback(async (blob) => {
+    const sid  = sessionIdRef.current
+    const name = studentNameRef.current
+    if (!sid || !name || blob.size < 2000) {
+      // too short / silence — just go back to listening
+      isMimiSpeakingRef.current = false
+      setVadStatus('listening')
+      return
+    }
+    isMimiSpeakingRef.current = true   // block VAD while processing
+    setVadStatus('thinking')
+    try {
+      const token = localStorage.getItem('token')
+      const form  = new FormData()
+      form.append('audio', blob, 'audio.webm')
+      form.append('session_id', sid)
+      form.append('student_name', name)
+      const res  = await axios.post(API_ENDPOINTS.MIMI_CHAT_AUDIO, form,
+        { headers: { Authorization: `Bearer ${token}` } })
+      const data = res.data?.data
+      if (data?.text) {
+        setMimiText(data.text)
+        setImageUrl(data.image_url || null)
+        setYtVideo(data.yt_video || null)
+        lastAnswerRef.current = data.text
+        // Save to history
+        axios.post(API_ENDPOINTS.MIMI_SAVE_CHAT,
+          { student_name: name, session_id: sid, question: '', answer: data.text },
+          { headers: { Authorization: `Bearer ${token}` } }
+        ).catch(() => {})
+        if (data.audio) {
+          playMimiAudio(data.audio)
+        } else {
+          isMimiSpeakingRef.current = false
+          setVadStatus('listening')
+        }
+      } else {
+        isMimiSpeakingRef.current = false
+        setVadStatus('listening')
+      }
+    } catch (e) {
+      console.error('[AudioSend]', e)
+      isMimiSpeakingRef.current = false
+      setVadStatus('listening')
+    }
+  }, [playMimiAudio])
+
+  // ── Resume recognition after Mimi finishes (or on error) ──────
+  const resumeListening = useCallback(() => {
+    isMimiSpeakingRef.current = false
+    setIsSpeaking(false)
+    setVadStatus('listening')
+    if (recognitionRef.current && sessionIdRef.current) {
+      try { recognitionRef.current.start() } catch {}
+    }
+  }, [])
+
+  // ── Send transcribed text to Mimi (fast path) ─────────────────
+  const sendTextToMimi = useCallback(async (text) => {
+    const sid  = sessionIdRef.current
+    const name = studentNameRef.current
+    if (!sid || !text.trim()) return
+    isMimiSpeakingRef.current = true
+    setVadStatus('thinking')
+    try {
+      const token = localStorage.getItem('token')
+      const res   = await axios.post(API_ENDPOINTS.MIMI_TEXT_CHAT,
+        { text, session_id: sid, student_name: name },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      const data = res.data?.data
+      if (data?.text) {
+        setMimiText(data.text)
+        setImageUrl(data.image_url || null)
+        setYtVideo(data.yt_video   || null)
+        lastAnswerRef.current = data.text
+        axios.post(API_ENDPOINTS.MIMI_SAVE_CHAT,
+          { student_name: name, session_id: sid, question: text, answer: data.text },
+          { headers: { Authorization: `Bearer ${token}` } }
+        ).catch(() => {})
+        if (data.audio) {
+          playMimiAudio(data.audio)
+        } else {
+          setTimeout(resumeListening, 1500)
+        }
+      } else {
+        resumeListening()
+      }
+    } catch (e) {
+      console.error('[TextSend] Error — did you restart Docker?', e)
+      resumeListening()
+    }
+  }, [playMimiAudio, resumeListening])
+
+  // ── Web Speech API — real-time transcript, instant send ───────
+  const recognitionRef = useRef(null)
+
+  const stopVAD = useCallback(() => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop() } catch {}
+      recognitionRef.current = null
+    }
+    clearInterval(vadIntervalRef.current)
+    clearTimeout(silenceTimerRef.current)
+    vadIntervalRef.current  = null
+    silenceTimerRef.current = null
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(t => t.stop())
+      micStreamRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {})
+      audioContextRef.current = null
+    }
+    isRecordingRef.current = false
+    setVadStatus('idle')
+  }, [])
+
+  const startVAD = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) {
+      console.warn('[VAD] Web Speech API not supported — mic recording fallback not implemented')
+      setVadStatus('listening')
+      return
+    }
+
+    const recognition       = new SR()
+    recognition.lang        = 'en-IN'
+    recognition.continuous  = true   // keep listening after each sentence
+    recognition.interimResults = true
+
+    let interimText = ''
+
+    recognition.onstart = () => {
+      setVadStatus('listening')
+    }
+
+    recognition.onresult = (event) => {
+      if (isMimiSpeakingRef.current) return  // ignore while Mimi is talking
+
+      interimText = ''
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result     = event.results[i]
+        const transcript = result[0].transcript
+
+        if (result.isFinal) {
+          // Final sentence — send immediately
+          setVadStatus('thinking')
+          sendTextToMimi(transcript.trim())
+          interimText = ''
+        } else {
+          interimText += transcript
+          setVadStatus('user_speaking')
+        }
+      }
+    }
+
+    recognition.onerror = (e) => {
+      if (e.error === 'no-speech') return    // normal — just keep going
+      if (e.error === 'aborted')  return    // we stopped it intentionally
+      console.warn('[Speech]', e.error)
+    }
+
+    recognition.onend = () => {
+      // Auto-restart unless session is over or Mimi is speaking
+      if (sessionIdRef.current && !isMimiSpeakingRef.current) {
+        try { recognition.start() } catch {}
+      }
+    }
+
+    recognition.start()
+    recognitionRef.current = recognition
+  }, [sendTextToMimi])
+
+  // ── Poll /mimi-get — catches proactive Mimi messages ──────────
+  const startPolling = useCallback((name, sid) => {
+    if (pollingRef.current) return
+    const token = localStorage.getItem('token')
+    pollingRef.current = setInterval(async () => {
+      if (isMimiSpeakingRef.current) return
+      try {
+        const res = await axios.get(
+          `${API_ENDPOINTS.GET_MIMI_STATUS}?session_id=${sid}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        const d = res.data
+        if (!d.text || d.text === 'Thinking...' || d.text === lastAnswerRef.current) return
+        lastAnswerRef.current = d.text
+        setMimiText(d.text)
+        setImageUrl(d.image_url || null)
+        setYtVideo(d.yt_video || null)
+        if (d.audio) playMimiAudio(d.audio)
+      } catch {}
+    }, 1500)
+  }, [playMimiAudio])
+
   // ── Mimi session ─────────────────────────────────────────────
   const startMimiSession = useCallback(async (name) => {
     const sid = generateSessionId()
     setSessionId(sid)
+    sessionIdRef.current   = sid
+    studentNameRef.current = name
     setSessionState('running')
-    try { await axios.get(API_ENDPOINTS.START_MIMI_SESSION) }
-    catch (e) { console.error('Mimi session start error:', e) }
+    try {
+      const token = localStorage.getItem('token')
+      let studentId = ''
+      try {
+        const idRes = await axios.post(API_ENDPOINTS.GET_STUDENT_ID,
+          { name }, { headers: { Authorization: `Bearer ${token}` } })
+        studentId = idRes.data.student_id || ''
+      } catch {}
+      const res = await axios.post(API_ENDPOINTS.START_MIMI_SESSION,
+        { student_name: name, session_id: sid, student_id: studentId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      // Play greeting, then start VAD
+      const greeting = res.data
+      if (greeting.greeting_text) setMimiText(greeting.greeting_text)
+      if (greeting.greeting_audio) {
+        playMimiAudio(greeting.greeting_audio, () => startVAD())
+      } else {
+        startVAD()
+      }
+    } catch (e) {
+      console.error('Mimi session start error:', e)
+      startVAD()
+    }
     startPolling(name, sid)
-  }, []) // eslint-disable-line
+  }, [startPolling, startVAD, playMimiAudio]) // eslint-disable-line
   
   // ── Stop session ──────────────────────────────────────────────
   const stopSession = useCallback(async () => {
     // Pehle intervals band karo
     clearInterval(pollingRef.current)
     clearInterval(facePollingRef.current)
+    clearTimeout(faceTimeoutRef.current)
     pollingRef.current     = null
     facePollingRef.current = null
+    faceTimeoutRef.current = null
+    setShowManualEntry(false)
+    stopVAD()
     stopWebcam()
 
     try {
@@ -403,11 +695,30 @@ const MimiChat = () => {
           </motion.button>
         )}
         {sessionState === 'running' && (
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            onClick={stopSession}
-            className="px-6 py-3 rounded-full text-white bg-red-500 font-bold shadow-lg">
-            ⏹ Stop Session
-          </motion.button>
+          <>
+            <motion.div
+              animate={vadStatus === 'user_speaking' ? { scale: [1, 1.1, 1] } : {}}
+              transition={{ repeat: Infinity, duration: 0.5 }}
+              className={`px-5 py-2 rounded-full text-sm font-bold shadow-lg ${
+                vadStatus === 'listening'     ? 'bg-green-100 text-green-700' :
+                vadStatus === 'user_speaking' ? 'bg-red-100 text-red-600 animate-pulse' :
+                vadStatus === 'thinking'      ? 'bg-yellow-100 text-yellow-700' :
+                vadStatus === 'mimi_speaking' ? 'bg-purple-100 text-purple-700' :
+                'bg-gray-100 text-gray-500'
+              }`}
+            >
+              {vadStatus === 'listening'     && '🎤 Listening...'}
+              {vadStatus === 'user_speaking' && '🔴 Speaking...'}
+              {vadStatus === 'thinking'      && '⏳ Thinking...'}
+              {vadStatus === 'mimi_speaking' && '🔊 Mimi Speaking...'}
+              {vadStatus === 'idle'          && '⚪ Starting...'}
+            </motion.div>
+            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+              onClick={stopSession}
+              className="px-6 py-3 rounded-full text-white bg-red-500 font-bold shadow-lg">
+              ⏹ Stop
+            </motion.button>
+          </>
         )}
         <div className={`px-4 py-2 rounded-full text-sm font-bold ${
           sessionState === 'running'   ? 'bg-green-100 text-green-700'   :
@@ -458,9 +769,49 @@ const MimiChat = () => {
                 ))}
               </div>
 
-              <button 
+              {showManualEntry && (
+                <div className="mt-4 space-y-3">
+                  <p className="text-sm text-orange-500 font-semibold">Face not recognized. Enter name manually:</p>
+                  <input
+                    type="text"
+                    value={manualName}
+                    onChange={e => setManualName(e.target.value)}
+                    placeholder="Student name..."
+                    className="w-full px-4 py-3 rounded-xl border-2 border-purple-200 focus:border-purple-500 outline-none text-gray-700 text-center font-semibold"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && manualName.trim()) {
+                        clearInterval(facePollingRef.current)
+                        clearTimeout(faceTimeoutRef.current)
+                        facePollingRef.current = null
+                        stopWebcam()
+                        setShowManualEntry(false)
+                        setStudentName(manualName.trim())
+                        startMimiSession(manualName.trim())
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      if (!manualName.trim()) return
+                      clearInterval(facePollingRef.current)
+                      clearTimeout(faceTimeoutRef.current)
+                      facePollingRef.current = null
+                      stopWebcam()
+                      setShowManualEntry(false)
+                      setStudentName(manualName.trim())
+                      startMimiSession(manualName.trim())
+                    }}
+                    disabled={!manualName.trim()}
+                    className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl disabled:opacity-40"
+                  >
+                    Start Session →
+                  </button>
+                </div>
+              )}
+
+              <button
                 onClick={stopSession}
-                className="mt-8 text-gray-400 hover:text-red-500 transition-colors text-sm font-bold uppercase tracking-widest"
+                className="mt-6 text-gray-400 hover:text-red-500 transition-colors text-sm font-bold uppercase tracking-widest"
               >
                 Cancel
               </button>

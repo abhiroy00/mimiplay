@@ -1,5 +1,7 @@
 import io
 import os
+import re
+import json
 import speech_recognition as sr
 from pydub import AudioSegment
 from datetime import datetime, timezone, timedelta
@@ -1374,6 +1376,31 @@ def stop_mimi_session():
         return jsonify({'status': 'ok'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/mimi-text-chat', methods=['POST'])
+@require_auth_token
+def mimi_text_chat():
+    """Accept transcribed text directly — skips STT, much faster response."""
+    data         = request.get_json() or {}
+    text         = (data.get('text') or '').strip()
+    session_id   = data.get('session_id', '')
+    student_name = data.get('student_name', '')
+
+    if not text or not session_id:
+        return jsonify({"status": "error", "message": "text and session_id required"}), 400
+
+    session = _mimi_sessions.get(session_id)
+    if not session:
+        session = _get_or_create_session(session_id, student_name)
+
+    result = session.process_text(text)
+    if result and result.get("text"):
+        session.current_audio      = _generate_tts_audio_base64(result["text"])
+        session.current_audio_text = result["text"]
+        result["audio"]            = session.current_audio
+
+    return jsonify({"status": "success", "user_text": text, "data": result})
 
 
 app.register_blueprint(auth_bp)
