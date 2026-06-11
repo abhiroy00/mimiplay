@@ -23,7 +23,10 @@ const StudentManagement = () => {
     });
 
     const fetchStudents = async () => {
-        const res = await fetch(`${API_BASE_URL}/api/admin/all-students`);
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/api/admin/all-students`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
         const data = await res.json();
 
         const formatted = data.map(s => ({
@@ -44,7 +47,10 @@ const StudentManagement = () => {
     };
 
     const fetchParents = async () => {
-        const res = await fetch(`${API_BASE_URL}/api/admin/all-users`);
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/api/admin/all-users`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
         const data = await res.json();
 
         const onlyParents = data.filter(u => u.role === "parent");
@@ -61,10 +67,12 @@ const StudentManagement = () => {
     const handleAddStudent = async () => {
         const selectedParentObj = parents.find(p => p._id === formData.parentName);
         try {
+            const token = localStorage.getItem('token');
             const response = await fetch(`${API_BASE_URL}/api/admin/add-student`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
                 },
                 body: JSON.stringify({
                     name: formData.studentName,
@@ -91,10 +99,12 @@ const StudentManagement = () => {
     const handleUpdateStudent = async () => {
         const selectedParentObj = parents.find(p => p._id === editData.parentId || p.name === editData.parentName);
         try {
+            const token = localStorage.getItem('token');
             const res = await fetch(`${API_BASE_URL}/api/admin/edit-student/${editData.id}`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
                 },
                 body: JSON.stringify({
                     name: editData.studentName,

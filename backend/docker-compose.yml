@@ -81,12 +81,6 @@ services:
       QDRANT__SERVICE__GRPC_PORT: 6334
       QDRANT__LOG_LEVEL: INFO
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 20s
     networks:
       - mimi-network
 
@@ -116,7 +110,7 @@ services:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     volumes:
       - .:/app
@@ -156,7 +150,7 @@ services:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_started
       celery-worker:
         condition: service_started
     restart: unless-stopped

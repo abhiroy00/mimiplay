@@ -1,4 +1,5 @@
 import io
+import os
 import speech_recognition as sr
 from pydub import AudioSegment
 from datetime import datetime, timezone, timedelta
@@ -20,8 +21,9 @@ except ImportError:
     # logger will be available after basicConfig
     
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
-from routes.auth_routes import auth_bp
+from routes.auth_routes import auth_bp, token_required as require_auth_token
 from routes.admin_routes import admin_bp
 from routes.whatsapp_route import whatsapp_bp
 from routes.parent_routes import parent_bp
