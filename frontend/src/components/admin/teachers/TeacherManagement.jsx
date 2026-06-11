@@ -444,7 +444,10 @@ const TeacherManagement = () => {
   const [editData, setEditData] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/admin/all-users`)
+    const token = localStorage.getItem('token');
+    fetch(`${API_BASE_URL}/api/admin/all-users`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
       .then(res => res.json())
       .then(data => {
         const formatted = data
@@ -485,8 +488,10 @@ const TeacherManagement = () => {
   });
 
   const handleApprove = async (teacher) => {
+    const token = localStorage.getItem('token');
     await fetch(`${API_BASE_URL}/api/admin/approve/${teacher.id}`, {
-      method: "PUT"
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` }
     });
 
     setTeachers(prev =>
@@ -499,10 +504,12 @@ const TeacherManagement = () => {
 const handleReject = async (teacher) => {
   if (window.confirm(`Are you sure you want to reject ${teacher.name}?`)) {
     try {
+      const token = localStorage.getItem('token');
       const res = await fetch(
         `${API_BASE_URL}/api/admin/reject/${teacher.id}`,
         {
           method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` }
         },
       );
 
@@ -533,10 +540,12 @@ const handleReject = async (teacher) => {
 
   const handleAddTeacher = async () => {
     try {
+      const token = localStorage.getItem('token');
       const res = await fetch(`${API_BASE_URL}/api/admin/add-teacher`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(formData)
       });

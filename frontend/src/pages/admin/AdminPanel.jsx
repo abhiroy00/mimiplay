@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, UserPlus, Settings, LogOut, GraduationCap  } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Settings, LogOut, GraduationCap, Camera } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 // Admin Pages
@@ -9,6 +9,7 @@ import TeacherManagement from '../../components/admin/teachers/TeacherManagement
 import ParentManagement from '../../components/admin/parents/ParentManagement';
 import StudentManagement from '../../components/admin/students/StudentManagement';
 import SystemSettings from '../../components/admin/settings/SystemSettings';
+import FaceRegistration from '../../components/admin/face/FaceRegistration';
 
 const AdminPanel = () => {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ const AdminPanel = () => {
     { path: '/admin/teachers', icon: Users, label: 'Teachers', color: 'blue' },
     { path: '/admin/parents', icon: UserPlus, label: 'Parents', color: 'green' },
     { path: '/admin/students', icon: GraduationCap, label: 'Students', color: 'orange' },
+    { path: '/admin/face', icon: Camera, label: 'Face Register', color: 'pink' },
     { path: '/admin/settings', icon: Settings, label: 'Settings', color: 'gray' },
   ];
 
@@ -36,6 +38,7 @@ const AdminPanel = () => {
       blue: active ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-700 hover:bg-blue-200',
       green: active ? 'bg-green-500 text-white' : 'bg-green-100 text-green-700 hover:bg-green-200',
       orange: active ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700 hover:bg-orange-200',
+      pink: active ? 'bg-pink-500 text-white' : 'bg-pink-100 text-pink-700 hover:bg-pink-200',
       gray: active ? 'bg-gray-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
     };
     return colors[color];
@@ -90,6 +93,7 @@ const AdminPanel = () => {
           <Route path="teachers" element={<TeacherManagement />} />
           <Route path="parents" element={<ParentManagement />} />
           <Route path="students" element={<StudentManagement />} />
+          <Route path="face" element={<FaceRegistration />} />
           <Route path="settings" element={<SystemSettings />} />
         </Routes>
       </div>

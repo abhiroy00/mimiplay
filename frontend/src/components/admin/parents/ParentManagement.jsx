@@ -325,7 +325,10 @@ const ParentManagement = () => {
   const [students, setStudents] = useState([]);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/admin/all-users`)
+    const token = localStorage.getItem('token');
+    fetch(`${API_BASE_URL}/api/admin/all-users`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
       .then(res => res.json())
       .then(data => {
         const parentsOnly = data.filter(user => user.role === "parent"); // ⭐ FIX
@@ -354,7 +357,10 @@ const ParentManagement = () => {
   }, [selectedParent]);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/admin/all-students`)
+    const token = localStorage.getItem('token');
+    fetch(`${API_BASE_URL}/api/admin/all-students`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
       .then(res => res.json())
       .then(data => {
         setStudents(data);
@@ -380,8 +386,10 @@ const ParentManagement = () => {
   };
 
   const handleApprove = async (parent) => {
+    const token = localStorage.getItem('token');
     await fetch(`${API_BASE_URL}/api/admin/approve/${parent.id}`, {
-      method: "PUT"
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` }
     });
 
     setParents(prev =>
@@ -394,8 +402,10 @@ const ParentManagement = () => {
 const handleReject = async (parent) => {
   if (window.confirm(`Are you sure you want to reject ${parent.name}?`)) {
     try {
+      const token = localStorage.getItem('token');
       const res = await fetch(`${API_BASE_URL}/api/admin/reject/${parent.id}`, {
         method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       const data = await res.json();
@@ -416,11 +426,15 @@ const handleReject = async (parent) => {
 };
   const handleUpdateParent = async () => {
     try {
+      const token = localStorage.getItem('token');
       const res = await fetch(
         `${API_BASE_URL}/api/admin/edit-parent/${editForm.id}`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
           body: JSON.stringify(editForm),
         }
       );
