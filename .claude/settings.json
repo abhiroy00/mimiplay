@@ -3,7 +3,10 @@
     "allow": [
       "Bash(curl -s -o NUL -w \"%{http_code}\" http://localhost:5000/api/register -X POST -H \"Content-Type: application/json\" -d \"{\\\\\"test\\\\\":1}\")",
       "Bash(docker compose *)",
-      "Bash(docker exec *)"
+      "Bash(docker exec *)",
+      "Bash(docker version *)",
+      "Bash(docker context *)",
+      "Bash(docker info *)"
     ]
   }
 }

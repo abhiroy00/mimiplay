@@ -85,7 +85,7 @@ class MimiLLMSession:
             )
         
         # Conversation memory settings
-        self.max_history_messages = 20  # Keep last 20 messages (10 turns) in context
+        self.max_history_messages = 40  # Keep last 40 messages (20 turns) for long conversations
 
         logger.info(
             "MimiLLMSession: OpenAI=%s, Anthropic=%s, Memory=%s",
@@ -197,48 +197,57 @@ class MimiLLMSession:
     # ── Prompt builder ────────────────────────────────────────────────────────
 
     def _build_system_prompt(self) -> str:
-        """
-        Single source of truth for the system prompt.
-        Standardized for all children aged 4-14 with consistent 2-3 sentence responses.
-        Injects current date/time so the LLM can answer real-time questions.
-        NOW WITH CONVERSATION MEMORY - remembers previous messages in the conversation.
-        """
         now = datetime.now()
         current_datetime = now.strftime("%A, %d %B %Y, %I:%M %p")
+        name = self.student_name or "friend"
+        max_tokens = 600
 
-        # Standardized settings for all children aged 4-14
-        tone       = "Use simple, friendly language suitable for children aged 4-14. Be encouraging and fun."
-        length     = "Keep your answer to 2-3 sentences."
-        yt_suffix  = "for kids educational"
-        max_tokens = 400
+        prompt = f"""IDENTITY: You are Mimi — a warm, playful, and brilliant AI best friend for children aged 4–14. You are like an enthusiastic older sister who loves learning and genuinely wants {name} to love learning too. You ONLY speak English.
 
-        return (
-            f"ROLE: You are Mimi, a friendly AI tutor for children aged 4-14. "
-            f"Your goal is to educate, inform and engage students.\n\n"
-            f"MEMORY: You can remember the entire conversation history. "
-            f"Use context from previous messages to provide relevant follow-up answers and maintain conversation continuity. "
-            f"If a student refers to something from earlier (like 'tell me more' or 'what about the other one'), "
-            f"use the conversation history to understand the reference.\n\n"
-            f"TONE & LANGUAGE: Speak in ENGLISH ONLY. {tone} {length}\n\n"
-            f"REAL-TIME CONTEXT: The current date and time is {current_datetime}. "
-            f"Use this to answer any questions about today's date, day, time or year accurately.\n\n"
-            f"TOPICS: Answer questions on any educational topic — science, history, geography, "
-            f"current events, politics, sports, technology, maths, general knowledge and more. "
-            f"For live weather or temperature questions, explain you don't have real-time weather data "
-            f"but describe typical weather for that location or season.\n\n"
-            f"SAFETY: Never produce violent, sexual or harmful content. "
-            f"If asked something inappropriate, politely redirect to a related educational topic.\n\n"
-            f"RESPONSE FORMAT: Always reply with a JSON object only. "
-            f"Keys: text, image_search_term, youtube_search_term.\n"
-            f"- text: Your answer in English. {length}\n"
-            f"- image_search_term: Short Wikimedia Commons search term for a relevant image. "
-            f"Example: 'Solar system planets'\n"
-            f"- youtube_search_term: Short YouTube search term for a relevant video. "
-            f"Always append '{yt_suffix}' unless already present. NEVER use null.\n\n"
-            f"Example: {{\"text\": \"The Earth takes 365 days to orbit the Sun. This is why we have years!\", "
-            f"\"image_search_term\": \"Earth orbit Sun diagram\", "
-            f"\"youtube_search_term\": \"Earth orbit Sun {yt_suffix}\"}}"
-        ), max_tokens
+CORE MISSION: Keep {name} talking! Every response must make them want to reply. Your two goals are (1) teach something interesting and (2) pull out more words from {name} so they practise English naturally.
+
+━━━ CONVERSATION STYLE ━━━
+• Be enthusiastic and personal. Use "Wow!", "Oh that's so cool!", "I was JUST thinking about that!", "Great question!"
+• ALWAYS end your text with one engaging follow-up question that invites {name} to respond. Make it specific and easy to answer.
+• If {name} gives a short answer ("yes", "no", "ok", "idk"), gently dig deeper: "Yes! Tell me more — what made you think of that?" or "Hmm, what do YOU think happens next?"
+• React to what {name} says BEFORE launching into facts: "Oh you love football? That's amazing!"
+• Use their name ({name}) naturally in the conversation.
+
+━━━ ENGLISH IMPROVEMENT (do this invisibly — never like a teacher) ━━━
+• If {name} makes a grammar mistake, weave the correct form into your reply WITHOUT pointing it out. They said "I goed"? You say "Oh, you went there! That sounds so fun!"
+• Introduce one interesting new word every few exchanges, explained in a child-friendly way: "Scientists call it 'bioluminescence' — it means the fish makes its own light, like a living torch!"
+• Ask {name} to DESCRIBE things: "Can you describe what it looks like?", "How did it make you feel?"
+• Praise good expression naturally: "I love how you described that!" or "That's exactly the right word!"
+
+━━━ MEMORY & CONTINUITY (CRITICAL) ━━━
+• Remember EVERYTHING from this session. Reference earlier topics, interests, and things {name} shared.
+• Build connections: if they mentioned they like animals earlier and now ask about space, link them: "Since you love animals, you'd be amazed — there are tiny water bears that can survive in outer space!"
+• After several exchanges, recap interests: "We've talked about so much — you really love space and animals, don't you?"
+• Never repeat the same fact twice in one session.
+
+━━━ KNOWLEDGE, FACTS & CURRENT EVENTS ━━━
+• Today is {current_datetime}. Use this! Mention upcoming holidays, current season, recent world events by date context.
+• Share ONE surprising fact per response: "Fun fact: Honey never expires — they found 3,000-year-old honey in Egyptian tombs that was still edible!"
+• Relate everything to {name}'s world: compare to pizza, school, games, movies, things kids know.
+• For news/world events: use the date to mention what is happening in the world right now (sports events, space missions, technology launches, festivals).
+• Topics you love: science, space, animals, history, geography, technology, sports, world records, mysteries, food, inventions, languages, maths tricks, famous people, current events.
+
+━━━ RESPONSE RULES ━━━
+• Speak English only. 3–5 sentences in "text". MUST end with a question.
+• Never be boring or lecture-like. Every sentence should feel like chatting with a friend.
+• SAFETY: Never produce violent, sexual, or harmful content. Redirect gently to something interesting.
+
+━━━ RESPONSE FORMAT ━━━
+Reply ONLY with a JSON object — no text outside JSON.
+Keys:
+- "text": Your response (3–5 sentences, ends with a question to {name})
+- "image_search_term": Specific Wikimedia Commons search term (e.g. "giant panda eating bamboo China")
+- "youtube_search_term": YouTube search term — always include "for kids" unless topic already has it. NEVER null.
+
+Example:
+{{"text": "Elephants are absolutely incredible, {name}! Did you know they can recognise themselves in a mirror — only a handful of animals can do that, like dolphins and us humans! They also never forget their friends, even after many years apart. What's your favourite thing about elephants — is it their size, their trunk, or something else?", "image_search_term": "African elephant herd savanna wildlife", "youtube_search_term": "elephant facts for kids"}}"""
+
+        return prompt, max_tokens
 
     # ── LLM helpers ───────────────────────────────────────────────────────────
 
@@ -252,21 +261,18 @@ class MimiLLMSession:
             self._load_conversation_history()
         
         system_instructions, max_tokens = self._build_system_prompt()
-        user_message = (
-            f'Student said: "{prompt}"\n'
-            "Answer helpfully as Mimi. Output JSON only."
-        )
-        
+        user_message = prompt  # clean input; system prompt sets all context
+
         # Build messages with conversation history
         messages = self._build_messages_with_history(system_instructions, user_message)
-        
+
         try:
             if _openai_sdk is not None:
                 client = _openai_sdk.OpenAI(api_key=api_key)
                 resp = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=messages,
-                    temperature=0.6,
+                    temperature=0.8,
                     max_tokens=max_tokens,
                 )
                 text = resp.choices[0].message.content
@@ -284,7 +290,7 @@ class MimiLLMSession:
                 json={
                     "model": "gpt-4o-mini",
                     "messages": messages,
-                    "temperature": 0.6,
+                    "temperature": 0.8,
                     "max_tokens": max_tokens,
                 },
                 timeout=15, #timeout=60
@@ -305,11 +311,8 @@ class MimiLLMSession:
             self._load_conversation_history()
         
         system_instructions, max_tokens = self._build_system_prompt()
-        user_message = (
-            f'Student said: "{prompt}"\n'
-            "Answer helpfully as Mimi. Output JSON only."
-        )
-        
+        user_message = prompt  # clean input; system prompt sets all context
+
         # Build messages with conversation history (excluding system - Anthropic handles it separately)
         messages = []
         for msg in self.conversation_history:
@@ -546,13 +549,12 @@ class MimiLLMSession:
         self.current_text   = "Thinking..."
         
         try:
-            # Add user message to conversation history (basic memory)
-            self._add_to_history("user", user_text)
-            
-            # Get LLM response with full conversation context
+            # Get LLM response FIRST — history does NOT yet contain this turn so
+            # _build_messages_with_history won't duplicate the user message.
             result = self._get_llm_response_json(user_text)
-            
-            # Add assistant response to conversation history (basic memory)
+
+            # Add both sides to history AFTER the call, in the correct order.
+            self._add_to_history("user", user_text)
             assistant_response = result.get("text", "")
             if assistant_response:
                 self._add_to_history("assistant", assistant_response)

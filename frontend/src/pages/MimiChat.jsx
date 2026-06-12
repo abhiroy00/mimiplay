@@ -254,6 +254,8 @@ const MimiChat = () => {
   const isRecordingRef    = useRef(false)
   const isMimiSpeakingRef = useRef(false)
   const speechStartRef    = useRef(0)
+  const currentAudioRef   = useRef(null)   // tracks playing Audio so wake-word can stop it
+  const startVADRef       = useRef(null)   // stable ref to startVAD, breaks circular dep
 
   useEffect(() => {
     chatHistoryRef.current = chatHistory
@@ -356,27 +358,32 @@ const MimiChat = () => {
         new Blob([Uint8Array.from(atob(base64audio), c => c.charCodeAt(0))], { type: 'audio/mp3' })
       )
       const audio = new Audio(url)
-      audio.play().catch(() => {})
-      audio.onended = () => {
+      currentAudioRef.current = audio
+
+      const _resume = () => {
         URL.revokeObjectURL(url)
+        currentAudioRef.current = null
         isMimiSpeakingRef.current = false
         setIsSpeaking(false)
         setVadStatus('listening')
-        if (recognitionRef.current && sessionIdRef.current) {
-          try { recognitionRef.current.start() } catch {}
+        if (onDone) {
+          // greeting path: caller passes startVAD as onDone
+          onDone()
+        } else if (sessionIdRef.current) {
+          // reply path: always recreate recognition (old instance may be dead)
+          if (recognitionRef.current) {
+            try { recognitionRef.current.stop() } catch {}
+            recognitionRef.current = null
+          }
+          if (startVADRef.current) startVADRef.current()
         }
-        onDone && onDone()
       }
-      audio.onerror = () => {
-        isMimiSpeakingRef.current = false
-        setIsSpeaking(false)
-        setVadStatus('listening')
-        if (recognitionRef.current && sessionIdRef.current) {
-          try { recognitionRef.current.start() } catch {}
-        }
-        onDone && onDone()
-      }
+
+      audio.play().catch(() => {})
+      audio.onended = _resume
+      audio.onerror = _resume
     } catch {
+      currentAudioRef.current = null
       isMimiSpeakingRef.current = false
       setIsSpeaking(false)
       setVadStatus('listening')
@@ -505,59 +512,91 @@ const MimiChat = () => {
 
   const startVAD = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      console.warn('[VAD] Web Speech API not supported — mic recording fallback not implemented')
-      setVadStatus('listening')
-      return
+    if (!SR) { setVadStatus('listening'); return }
+
+    // Kill any existing recognition before creating a new one
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop() } catch {}
+      recognitionRef.current = null
     }
 
-    const recognition       = new SR()
-    recognition.lang        = 'en-IN'
-    recognition.continuous  = true   // keep listening after each sentence
+    let silenceTimer  = null   // backup: send if user pauses for 1.5s without isFinal
+    let pendingText   = ''     // accumulated interim transcript
+
+    const _sendNow = (text) => {
+      clearTimeout(silenceTimer)
+      silenceTimer = null
+      pendingText  = ''
+      if (text.trim() && !isMimiSpeakingRef.current && sessionIdRef.current) {
+        setVadStatus('thinking')
+        sendTextToMimi(text.trim())
+      }
+    }
+
+    const recognition          = new SR()
+    recognition.lang           = 'en-IN'
+    recognition.continuous     = false   // ← false: Chrome fires isFinal MUCH faster
     recognition.interimResults = true
+    recognition.maxAlternatives = 1
 
-    let interimText = ''
-
-    recognition.onstart = () => {
-      setVadStatus('listening')
-    }
+    recognition.onstart = () => setVadStatus('listening')
 
     recognition.onresult = (event) => {
-      if (isMimiSpeakingRef.current) return  // ignore while Mimi is talking
-
-      interimText = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result     = event.results[i]
         const transcript = result[0].transcript
+        const lower      = transcript.toLowerCase().trim()
+
+        // ── Wake word: say "mimi" to interrupt her ────────────────
+        if (lower.includes('mimi') && isMimiSpeakingRef.current) {
+          if (currentAudioRef.current) {
+            currentAudioRef.current.pause()
+            currentAudioRef.current.src = ''
+            currentAudioRef.current = null
+          }
+          isMimiSpeakingRef.current = false
+          setIsSpeaking(false)
+          setVadStatus('listening')
+          return
+        }
+
+        if (isMimiSpeakingRef.current) continue
 
         if (result.isFinal) {
-          // Final sentence — send immediately
-          setVadStatus('thinking')
-          sendTextToMimi(transcript.trim())
-          interimText = ''
+          _sendNow(transcript)
         } else {
-          interimText += transcript
+          // Interim result: user is still speaking
+          pendingText = transcript
           setVadStatus('user_speaking')
+          // Silence backup: if no new result arrives in 1.5s, send what we have
+          clearTimeout(silenceTimer)
+          silenceTimer = setTimeout(() => _sendNow(pendingText), 1500)
         }
       }
     }
 
     recognition.onerror = (e) => {
-      if (e.error === 'no-speech') return    // normal — just keep going
-      if (e.error === 'aborted')  return    // we stopped it intentionally
+      if (e.error === 'no-speech') return
+      if (e.error === 'aborted')   return
       console.warn('[Speech]', e.error)
     }
 
     recognition.onend = () => {
-      // Auto-restart unless session is over or Mimi is speaking
+      clearTimeout(silenceTimer)
+      // Send anything still pending (catch edge case where isFinal never fired)
+      if (pendingText.trim()) _sendNow(pendingText)
+      // Restart for next sentence (unless session ended or Mimi is speaking)
       if (sessionIdRef.current && !isMimiSpeakingRef.current) {
-        try { recognition.start() } catch {}
+        try { recognition.start() } catch { if (startVADRef.current) startVADRef.current() }
       }
     }
 
     recognition.start()
     recognitionRef.current = recognition
   }, [sendTextToMimi])
+
+  // Keep startVADRef in sync so playMimiAudio can call it without circular dep
+  useEffect(() => { startVADRef.current = startVAD }, [startVAD])
 
   // ── Poll /mimi-get — catches proactive Mimi messages ──────────
   const startPolling = useCallback((name, sid) => {

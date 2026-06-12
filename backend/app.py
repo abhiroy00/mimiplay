@@ -498,7 +498,15 @@ def start_mimi_session():
     logger.info("Mimi session started for: %s | id: %s | session: %s (age stored but not used in prompts)",
                 student_name, raw_id, session_id)
 
-    greeting_text  = f"Hi {student_name}! Great to see you. Go ahead and ask me anything."
+    import random
+    greetings = [
+        f"Hey {student_name}! Oh wow, I'm so happy you're here! I've been learning so many amazing things today — what do you want to explore first? Animals, space, history, sports — anything!",
+        f"Hi {student_name}! I missed you! Quick question — if you could visit any place in the whole world right now, where would you go?",
+        f"Hello {student_name}! I was just reading about something incredible — did you know there's a place on Earth where it rains diamonds? But first — how are YOU doing today?",
+        f"Hey {student_name}! So great to see you! I have a fun fact ready for you — but first, tell me — what's the most interesting thing that happened to you today?",
+        f"Hi {student_name}! I'm SO excited to chat! We can talk about anything — science, news, animals, space, stories — you name it! What's on your mind?",
+    ]
+    greeting_text  = random.choice(greetings)
     greeting_audio = _generate_tts_audio_base64(greeting_text)
 
     return jsonify({
