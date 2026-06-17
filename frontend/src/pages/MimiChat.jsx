@@ -211,6 +211,36 @@ import mimiWaveVideo    from '../assets/images/mimi/mimiwavehand_nobg.webm'
 // ✅ Reading book video — jo tumne bheja hai
 import mimiReadingVideo from '../assets/images/mimi/mimiidell_nobg.webm'
 
+// Closing line is always the same — gives the child a clear, recognizable
+// signal that the session has ended (per the farewell-prompt spec).
+const GOODBYE_CLOSING = 'See you next time, superstar! 🌟'
+
+// Generic templates (no topic learned yet, or topic unavailable) — used as-is.
+const GOODBYE_GENERIC = [
+  `Bye-bye, super learner! 👋 You did amazing today — ${GOODBYE_CLOSING}`,
+  `Goodbye, little explorer! 🚀 Every day with you is an adventure — ${GOODBYE_CLOSING}`,
+  `See you later, alligator! 🐊 Keep being curious — ${GOODBYE_CLOSING}`,
+]
+
+// Templates with a "{topic}" placeholder — used when at least one topic was learned this session.
+const GOODBYE_WITH_TOPIC = [
+  `Great job learning about {topic} today! 🌟 ${GOODBYE_CLOSING}`,
+  `Wow, you mastered {topic} today! 🚀 ${GOODBYE_CLOSING}`,
+  `You and {topic} make a great team today! 🍪 ${GOODBYE_CLOSING}`,
+]
+
+// Keeps the inserted topic short so the final message stays well under 20 words.
+const shortenTopic = (topic) => topic.split(' ').slice(0, 3).join(' ')
+
+const buildGoodbyeMessage = (topics) => {
+  const latestTopic = topics && topics.length > 0 ? topics[topics.length - 1] : null
+  if (!latestTopic) {
+    return GOODBYE_GENERIC[Math.floor(Math.random() * GOODBYE_GENERIC.length)]
+  }
+  const template = GOODBYE_WITH_TOPIC[Math.floor(Math.random() * GOODBYE_WITH_TOPIC.length)]
+  return template.replace('{topic}', shortenTopic(latestTopic))
+}
+
 const MimiChat = () => {
 
   const [sessionState,  setSessionState]  = useState('idle')
@@ -234,6 +264,8 @@ const MimiChat = () => {
 
   // VAD status: 'idle' | 'listening' | 'user_speaking' | 'thinking' | 'mimi_speaking'
   const [vadStatus,     setVadStatus]     = useState('idle')
+  const [topicsList,    setTopicsList]    = useState([])   // topics discussed this session
+  const [showTopics,    setShowTopics]    = useState(false)
 
   const pollingRef       = useRef(null)
   const facePollingRef   = useRef(null)
@@ -245,6 +277,8 @@ const MimiChat = () => {
   const audioChunksRef   = useRef([])
   const sessionIdRef     = useRef('')
   const studentNameRef   = useRef('')
+  const topicsListRef    = useRef([])   // mirrors topicsList state for use inside stable callbacks
+  useEffect(() => { topicsListRef.current = topicsList }, [topicsList])
   // VAD refs
   const audioContextRef   = useRef(null)
   const analyserRef       = useRef(null)
@@ -255,7 +289,11 @@ const MimiChat = () => {
   const isMimiSpeakingRef = useRef(false)
   const speechStartRef    = useRef(0)
   const currentAudioRef   = useRef(null)   // tracks playing Audio so wake-word can stop it
-  const startVADRef       = useRef(null)   // stable ref to startVAD, breaks circular dep
+  const startVADRef            = useRef(null)   // stable ref to startVAD, breaks circular dep
+  const stopSessionRef         = useRef(null)   // stable ref to stopSession for recognition handlers
+  const doInterruptRef         = useRef(null)   // stable ref to doInterrupt, used by playMimiAudio VAD
+  const sayGoodbyeAndStopRef   = useRef(null)   // voice-triggered goodbye flow
+  const justInterruptedRef     = useRef(0)      // timestamp of last doInterrupt (echo-clear window)
 
   useEffect(() => {
     chatHistoryRef.current = chatHistory
@@ -303,6 +341,8 @@ const MimiChat = () => {
     setLastQuestion('')
     setShowManualEntry(false)
     setManualName('')
+    setTopicsList([])
+    setShowTopics(false)
 
     await startWebcam()
 
@@ -350,9 +390,41 @@ const MimiChat = () => {
 
   // ── Play Mimi's audio response, then resume listening ─────────
   const playMimiAudio = useCallback((base64audio, onDone) => {
+    if (!sessionIdRef.current && !onDone) return
+
+    // Stop any currently-playing audio so responses never overlap
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause()
+      currentAudioRef.current = null
+    }
+    clearInterval(vadIntervalRef.current)
+
     isMimiSpeakingRef.current = true
     setVadStatus('mimi_speaking')
     setIsSpeaking(true)
+
+    // ── Audio-based VAD: detect user speaking via echo-cancelled mic ──
+    // Uses AnalyserNode (set up with echoCancellation) so we DON'T pick up
+    // Mimi's own speaker output — only real user voice triggers this.
+    clearInterval(vadIntervalRef.current)
+    if (analyserRef.current) {
+      const buf = new Uint8Array(analyserRef.current.frequencyBinCount)
+      let voiced = 0
+      vadIntervalRef.current = setInterval(() => {
+        if (!isMimiSpeakingRef.current) { clearInterval(vadIntervalRef.current); return }
+        analyserRef.current.getByteTimeDomainData(buf)
+        let sum = 0
+        for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v }
+        const rms = Math.sqrt(sum / buf.length)
+        if (rms > 0.06) {
+          if (++voiced >= 4) {                        // ~400ms sustained voice = real speech
+            clearInterval(vadIntervalRef.current)
+            if (doInterruptRef.current) doInterruptRef.current()
+          }
+        } else { voiced = 0 }
+      }, 100)
+    }
+
     try {
       const url   = URL.createObjectURL(
         new Blob([Uint8Array.from(atob(base64audio), c => c.charCodeAt(0))], { type: 'audio/mp3' })
@@ -361,28 +433,31 @@ const MimiChat = () => {
       currentAudioRef.current = audio
 
       const _resume = () => {
+        clearInterval(vadIntervalRef.current)       // stop VAD when audio ends naturally
         URL.revokeObjectURL(url)
         currentAudioRef.current = null
         isMimiSpeakingRef.current = false
         setIsSpeaking(false)
+        if (!sessionIdRef.current && !onDone) return
         setVadStatus('listening')
         if (onDone) {
-          // greeting path: caller passes startVAD as onDone
           onDone()
         } else if (sessionIdRef.current) {
-          // reply path: always recreate recognition (old instance may be dead)
-          if (recognitionRef.current) {
-            try { recognitionRef.current.stop() } catch {}
-            recognitionRef.current = null
-          }
+          // With continuous:false, recognition ends naturally while Mimi speaks.
+          // Always restart it so we're listening again after Mimi finishes.
           if (startVADRef.current) startVADRef.current()
         }
       }
 
       audio.play().catch(() => {})
       audio.onended = _resume
-      audio.onerror = _resume
+      audio.onerror = () => {
+        clearInterval(vadIntervalRef.current)
+        URL.revokeObjectURL(url)
+        currentAudioRef.current = null
+      }
     } catch {
+      clearInterval(vadIntervalRef.current)
       currentAudioRef.current = null
       isMimiSpeakingRef.current = false
       setIsSpeaking(false)
@@ -417,11 +492,19 @@ const MimiChat = () => {
         setImageUrl(data.image_url || null)
         setYtVideo(data.yt_video || null)
         lastAnswerRef.current = data.text
-        // Save to history
-        axios.post(API_ENDPOINTS.MIMI_SAVE_CHAT,
-          { student_name: name, session_id: sid, question: '', answer: data.text },
-          { headers: { Authorization: `Bearer ${token}` } }
-        ).catch(() => {})
+
+        if (data.topics_list) {
+          setTopicsList(data.topics_list)
+          setShowTopics(true)
+        } else if (data.topic) {
+          setTopicsList(prev => {
+            const key = data.topic.toLowerCase()
+            if (prev.some(t => t.toLowerCase() === key)) return prev
+            return [...prev, data.topic]
+          })
+        }
+
+        setChatHistory(prev => [...prev, { q: '', a: data.text }])
         if (data.audio) {
           playMimiAudio(data.audio)
         } else {
@@ -454,6 +537,14 @@ const MimiChat = () => {
     const sid  = sessionIdRef.current
     const name = studentNameRef.current
     if (!sid || !text.trim()) return
+
+    // Kill any currently-playing audio before we go async — prevents overlap
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause()
+      currentAudioRef.current = null
+    }
+    clearInterval(vadIntervalRef.current)
+
     isMimiSpeakingRef.current = true
     setVadStatus('thinking')
     try {
@@ -468,10 +559,23 @@ const MimiChat = () => {
         setImageUrl(data.image_url || null)
         setYtVideo(data.yt_video   || null)
         lastAnswerRef.current = data.text
-        axios.post(API_ENDPOINTS.MIMI_SAVE_CHAT,
-          { student_name: name, session_id: sid, question: text, answer: data.text },
-          { headers: { Authorization: `Bearer ${token}` } }
-        ).catch(() => {})
+
+        // Topic memory — update list & auto-show when topics_list returned
+        if (data.topics_list) {
+          setTopicsList(data.topics_list)
+          setShowTopics(true)
+        } else if (data.topic) {
+          setTopicsList(prev => {
+            const key = data.topic.toLowerCase()
+            if (prev.some(t => t.toLowerCase() === key)) return prev
+            return [...prev, data.topic]
+          })
+        }
+
+        // Backend already saved Q&A to MongoDB synchronously before returning.
+        // Increment local counter so the "X conversations" UI stays accurate.
+        setChatHistory(prev => [...prev, { q: text, a: data.text }])
+
         if (data.audio) {
           playMimiAudio(data.audio)
         } else {
@@ -510,18 +614,116 @@ const MimiChat = () => {
     setVadStatus('idle')
   }, [])
 
+  // ── Set up echo-cancelled mic for interrupt VAD ──────────────
+  const setupMicVAD = useCallback(async () => {
+    if (analyserRef.current) return           // already set up
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      })
+      micStreamRef.current = stream
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      audioContextRef.current = ctx
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 512
+      analyser.smoothingTimeConstant = 0.4
+      ctx.createMediaStreamSource(stream).connect(analyser)
+      analyserRef.current = analyser
+    } catch (e) {
+      console.warn('[VAD] Mic setup failed, voice interrupt disabled:', e)
+    }
+  }, [])
+
+  // ── Interrupt handler: stop Mimi's audio only — recognition keeps running ────
+  // Recognition is continuous (see startVAD) so we never stop/restart it here.
+  // justInterruptedRef gives a 500ms echo-clear window: recognition results that
+  // arrive right after Mimi stops (her buffered voice) are silently discarded.
+  // "bye" is exempt from the window — it is always processed immediately.
+  const doInterrupt = useCallback(() => {
+    clearInterval(vadIntervalRef.current)
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause()
+      currentAudioRef.current = null
+    }
+    isMimiSpeakingRef.current = false
+    setIsSpeaking(false)
+    setVadStatus('listening')
+    justInterruptedRef.current = Date.now()   // start 500ms echo-clear window
+    // If recognition died for any reason (browser killed it), restart it now
+    if (!recognitionRef.current && sessionIdRef.current && startVADRef.current) {
+      startVADRef.current()
+    }
+  }, [])
+
+  useEffect(() => { doInterruptRef.current = doInterrupt }, [doInterrupt])
+
+  // ── Voice-triggered goodbye: play warm farewell THEN stop session ──────────
+  const goodbyeInProgressRef = useRef(false)
+  const sayGoodbyeAndStop = useCallback(async () => {
+    if (goodbyeInProgressRef.current) return   // prevent double-fire
+    goodbyeInProgressRef.current = true
+    // Freeze recognition and current audio immediately
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause()
+      currentAudioRef.current = null
+    }
+    clearInterval(vadIntervalRef.current)
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop() } catch {}
+      recognitionRef.current = null
+    }
+    isMimiSpeakingRef.current = false
+    setIsSpeaking(true)   // keep speaking indicator while goodbye plays
+    setVadStatus('idle')  // prevent recognition from restarting
+
+    const msg = buildGoodbyeMessage(topicsListRef.current)
+    setMimiText(msg)
+
+    try {
+      const token = localStorage.getItem('token')
+      const res = await axios.post(API_ENDPOINTS.MIMI_SPEAK, { text: msg },
+        { headers: { Authorization: `Bearer ${token}` } })
+      if (res.data?.audio) {
+        // Play audio directly — no VAD restart, no interrupt detection
+        const bytes = Uint8Array.from(atob(res.data.audio), c => c.charCodeAt(0))
+        const blob  = new Blob([bytes], { type: 'audio/mpeg' })
+        const url   = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        currentAudioRef.current = audio
+        const cleanup = () => {
+          URL.revokeObjectURL(url)
+          currentAudioRef.current = null
+          setIsSpeaking(false)
+          goodbyeInProgressRef.current = false
+          stopSessionRef.current && stopSessionRef.current()
+        }
+        audio.onended = cleanup
+        audio.onerror = cleanup
+        audio.play().catch(cleanup)
+        return
+      }
+    } catch (err) {
+      console.error('[Goodbye TTS]', err)
+    }
+    // Fallback: no audio → stop immediately
+    setIsSpeaking(false)
+    goodbyeInProgressRef.current = false
+    stopSessionRef.current && stopSessionRef.current()
+  }, [])
+
+  useEffect(() => { sayGoodbyeAndStopRef.current = sayGoodbyeAndStop }, [sayGoodbyeAndStop])
+
   const startVAD = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) { setVadStatus('listening'); return }
 
-    // Kill any existing recognition before creating a new one
     if (recognitionRef.current) {
       try { recognitionRef.current.stop() } catch {}
       recognitionRef.current = null
     }
 
-    let silenceTimer  = null   // backup: send if user pauses for 1.5s without isFinal
-    let pendingText   = ''     // accumulated interim transcript
+    let silenceTimer  = null
+    let pendingText   = ''
 
     const _sendNow = (text) => {
       clearTimeout(silenceTimer)
@@ -533,10 +735,17 @@ const MimiChat = () => {
       }
     }
 
-    const recognition          = new SR()
-    recognition.lang           = 'en-IN'
-    recognition.continuous     = false   // ← false: Chrome fires isFinal MUCH faster
-    recognition.interimResults = true
+    const BYE_PHRASES = [
+      'bye', 'goodbye', 'bye mimi', 'stop session', 'end session',
+      'goodnight', 'good night', 'see you', 'i have to go',
+      'bye bye', 'ok bye', 'tata', 'stop mimi', 'close session',
+      'exit', 'quit', 'stop learning', 'i am done', "i'm done",
+    ]
+
+    const recognition           = new SR()
+    recognition.lang            = 'en-IN'
+    recognition.continuous      = false  // short-lived per-utterance sessions — far more stable
+    recognition.interimResults  = true   // interim results let us catch "bye" before isFinal
     recognition.maxAlternatives = 1
 
     recognition.onstart = () => setVadStatus('listening')
@@ -546,31 +755,32 @@ const MimiChat = () => {
         const result     = event.results[i]
         const transcript = result[0].transcript
         const lower      = transcript.toLowerCase().trim()
+        if (!lower) continue
 
-        // ── Wake word: say "mimi" to interrupt her ────────────────
-        if (lower.includes('mimi') && isMimiSpeakingRef.current) {
-          if (currentAudioRef.current) {
-            currentAudioRef.current.pause()
-            currentAudioRef.current.src = ''
-            currentAudioRef.current = null
-          }
-          isMimiSpeakingRef.current = false
-          setIsSpeaking(false)
-          setVadStatus('listening')
+        // ── BYE CHECK: always first — exempt from all guards ──────────
+        // Fires on interim AND final, during Mimi speaking AND silence.
+        if (BYE_PHRASES.some(p => lower.includes(p))) {
+          clearTimeout(silenceTimer)
+          sayGoodbyeAndStopRef.current
+            ? sayGoodbyeAndStopRef.current()
+            : stopSessionRef.current && stopSessionRef.current()
           return
         }
 
-        if (isMimiSpeakingRef.current) continue
+        // ── Discard while Mimi is speaking (echo of her voice) ────────
+        if (isMimiSpeakingRef.current) return
 
+        // ── 500ms echo-clear window after VAD interrupt ───────────────
+        if (Date.now() - justInterruptedRef.current < 500) return
+
+        // ── Normal listening ──────────────────────────────────────────
         if (result.isFinal) {
           _sendNow(transcript)
         } else {
-          // Interim result: user is still speaking
           pendingText = transcript
           setVadStatus('user_speaking')
-          // Silence backup: if no new result arrives in 1.5s, send what we have
           clearTimeout(silenceTimer)
-          silenceTimer = setTimeout(() => _sendNow(pendingText), 1500)
+          silenceTimer = setTimeout(() => _sendNow(pendingText), 500)
         }
       }
     }
@@ -579,21 +789,38 @@ const MimiChat = () => {
       if (e.error === 'no-speech') return
       if (e.error === 'aborted')   return
       console.warn('[Speech]', e.error)
+      // Network error: Chrome's WebSocket to Google dropped — restart after 1s
+      if (e.error === 'network' && sessionIdRef.current) {
+        setTimeout(() => {
+          if (sessionIdRef.current && !isMimiSpeakingRef.current && startVADRef.current) {
+            startVADRef.current()
+          }
+        }, 1000)
+      }
     }
 
     recognition.onend = () => {
       clearTimeout(silenceTimer)
-      // Send anything still pending (catch edge case where isFinal never fired)
-      if (pendingText.trim()) _sendNow(pendingText)
-      // Restart for next sentence (unless session ended or Mimi is speaking)
-      if (sessionIdRef.current && !isMimiSpeakingRef.current) {
+      // Bye phrase detected via pending interim text (recognition ended before final)
+      const pendingLower = pendingText.toLowerCase().trim()
+      if (pendingLower && BYE_PHRASES.some(p => pendingLower.includes(p))) {
+        pendingText = ''
+        sayGoodbyeAndStopRef.current
+          ? sayGoodbyeAndStopRef.current()
+          : stopSessionRef.current && stopSessionRef.current()
+        return
+      }
+      if (pendingText.trim() && !isMimiSpeakingRef.current) _sendNow(pendingText)
+      pendingText = ''
+      // Restart immediately — recognitionRef guard prevents duplicate restarts
+      if (sessionIdRef.current && !isMimiSpeakingRef.current && recognitionRef.current === recognition) {
         try { recognition.start() } catch { if (startVADRef.current) startVADRef.current() }
       }
     }
 
     recognition.start()
     recognitionRef.current = recognition
-  }, [sendTextToMimi])
+  }, [sendTextToMimi, playMimiAudio])
 
   // Keep startVADRef in sync so playMimiAudio can call it without circular dep
   useEffect(() => { startVADRef.current = startVAD }, [startVAD])
@@ -622,11 +849,12 @@ const MimiChat = () => {
 
   // ── Mimi session ─────────────────────────────────────────────
   const startMimiSession = useCallback(async (name) => {
-    // Guard: prevent double-call from async face polling race condition
     if (sessionIdRef.current) {
       console.log('[Mimi] Session already active, skipping duplicate call')
       return
     }
+    // Set up echo-cancelled mic for interrupt detection (non-blocking)
+    setupMicVAD().catch(() => {})
     const sid = generateSessionId()
     setSessionId(sid)
     sessionIdRef.current   = sid
@@ -657,37 +885,51 @@ const MimiChat = () => {
       startVAD()
     }
     startPolling(name, sid)
-  }, [startPolling, startVAD, playMimiAudio]) // eslint-disable-line
+  }, [startPolling, startVAD, playMimiAudio, setupMicVAD]) // eslint-disable-line
   
   // ── Stop session ──────────────────────────────────────────────
-  const stopSession = useCallback(async () => {
-    // Pehle intervals band karo
+  const stopSession = useCallback(() => {
+    // 1. Kill audio immediately — no await, no delay
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause()
+      currentAudioRef.current = null
+    }
+    isMimiSpeakingRef.current = false
+
+    // 2. Kill all timers & polling
     clearInterval(pollingRef.current)
     clearInterval(facePollingRef.current)
     clearTimeout(faceTimeoutRef.current)
     pollingRef.current     = null
     facePollingRef.current = null
     faceTimeoutRef.current = null
-    setShowManualEntry(false)
+
+    // 3. Kill recognition & webcam
     stopVAD()
     stopWebcam()
+    setShowManualEntry(false)
 
+    // 4. Snapshot refs then clear them so any in-flight callbacks are rejected
     const sid  = sessionIdRef.current
     const name = studentNameRef.current
     sessionIdRef.current   = ''
     studentNameRef.current = ''
 
-    try {
-      await axios.post(API_ENDPOINTS.MIMI_STOP_SESSION,
-        { session_id: sid, student_name: name, send_whatsapp: false }
-      )
-    } catch (e) {
-      console.error('Stop error:', e)
-    }
-
+    // 5. Update UI immediately (no await)
     setSessionState('stopped')
     setIsSpeaking(false)
+    setVadStatus('idle')
+
+    // 6. Notify backend in background (fire-and-forget, don't block UI)
+    if (sid) {
+      axios.post(API_ENDPOINTS.MIMI_STOP_SESSION,
+        { session_id: sid, student_name: name, send_whatsapp: false }
+      ).catch(e => console.error('Stop error:', e))
+    }
   }, [stopWebcam, stopVAD])
+
+  // Keep stopSessionRef in sync so recognition handlers can call it
+  useEffect(() => { stopSessionRef.current = stopSession }, [stopSession])
 
   // ── Typewriter ────────────────────────────────────────────────
   useEffect(() => {
@@ -743,6 +985,14 @@ const MimiChat = () => {
             onClick={startFaceDetection}
             className="px-6 py-3 rounded-full text-white bg-indigo-600 font-bold shadow-lg">
             🎤 Start Mimi Chat
+          </motion.button>
+        )}
+        {sessionState === 'running' && topicsList.length > 0 && (
+          <motion.button
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            onClick={() => setShowTopics(v => !v)}
+            className="px-4 py-2 rounded-full bg-amber-100 text-amber-700 font-bold shadow text-sm border border-amber-300">
+            📚 Topics ({topicsList.length})
           </motion.button>
         )}
         {sessionState === 'running' && (
@@ -894,6 +1144,8 @@ const MimiChat = () => {
                   setImageUrl(null)
                   setYtVideo(null)
                   setIsSpeaking(false)
+                  setTopicsList([])
+                  setShowTopics(false)
                 }}
                 className="px-8 py-3 bg-purple-600 text-white font-black rounded-2xl shadow-lg hover:bg-purple-700">
                 🔄 Start New Session
@@ -956,6 +1208,39 @@ const MimiChat = () => {
                     )}
                   </div>
                 )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Topic Chips Panel ──────────────────────────────── */}
+          <AnimatePresence>
+            {showTopics && topicsList.length > 0 && sessionState === 'running' && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                transition={{ duration: 0.3 }}
+                className="mt-4 bg-white/95 rounded-2xl p-4 shadow-xl border border-amber-100">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-black text-amber-700">📚 Topics we've explored</p>
+                  <button onClick={() => setShowTopics(false)} className="text-gray-400 hover:text-gray-600 text-xs font-bold">✕</button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {topicsList.map((topic, i) => (
+                    <motion.button
+                      key={i}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        setShowTopics(false)
+                        sendTextToMimi(`Tell me more about ${topic}`)
+                      }}
+                      className="px-3 py-1.5 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 rounded-full text-sm font-bold shadow-sm border border-amber-200 hover:from-amber-200 hover:to-orange-200 transition-colors">
+                      {topic}
+                    </motion.button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Tap any topic to explore it deeper!</p>
               </motion.div>
             )}
           </AnimatePresence>

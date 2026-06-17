@@ -1,0 +1,55 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: mimi
+    # Set via ENVIRONMENT env var in docker-compose or override per host
+    environment: "${ENVIRONMENT:-staging}"
+
+rule_files: []
+
+scrape_configs:
+  # ── Flask API ─────────────────────────────────────────────────────────────
+  # prometheus-flask-exporter auto-exposes /metrics on the Flask app
+  # Container name = mimi-app (same Docker network: mimi-network)
+  - job_name: mimi-flask-app
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - "mimi-app:8080"
+        labels:
+          service: flask-api
+
+  # ── Celery via Flower ─────────────────────────────────────────────────────
+  # Add Flower to docker-compose if you want Celery metrics:
+  #   flower -A celery_app --port=5555 --enable-events
+  # Then uncomment:
+  # - job_name: mimi-celery
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ["mimi-flower:5555"]
+  #       labels:
+  #         service: celery-worker
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  # oliver006/redis_exporter exposes Redis metrics at :9121
+  # Add this to docker-compose to enable:
+  #   redis-exporter:
+  #     image: oliver006/redis_exporter:latest
+  #     environment:
+  #       REDIS_ADDR: redis://mimi-redis:6379
+  #     ports: ["9121:9121"]
+  #     networks: [mimi-network]
+  # Then uncomment:
+  # - job_name: mimi-redis
+  #   static_configs:
+  #     - targets: ["mimi-redis-exporter:9121"]
+  #       labels:
+  #         service: redis
+
+  # ── Prometheus self-scrape ────────────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - "localhost:9090"

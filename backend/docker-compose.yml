@@ -125,7 +125,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: mimi-app
-    command: gunicorn app:app --bind 0.0.0.0:5000 --workers 2 --worker-class gevent --worker-connections 1000 --timeout 60 --keep-alive 5 --access-logfile - --error-logfile -
+    command: gunicorn app:app --bind 0.0.0.0:5000 --workers 1 --worker-class gevent --worker-connections 100 --timeout 60 --keep-alive 5 --access-logfile - --error-logfile -
     ports:
       - "5000:5000"
     environment:
@@ -165,6 +165,51 @@ services:
     networks:
       - mimi-network
 
+  # ===========================================================================
+  # Prometheus - Metrics Collection
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: mimi-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - mimi-network
+
+  # ===========================================================================
+  # Grafana - Metrics Dashboard
+  # ===========================================================================
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: mimi-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/mimi-overview.json
+      - GF_LOG_LEVEL=info
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - mimi-network
+
 # =============================================================================
 # Volumes - Persistent Data Storage
 # =============================================================================
@@ -174,6 +219,10 @@ volumes:
   postgres_data:
     driver: local
   qdrant_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local
 
 # =============================================================================

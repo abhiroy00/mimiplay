@@ -7,6 +7,7 @@ pyjwt
 anthropic
 openai
 requests
+tzdata
 dnspython
 twilio
 edge_tts
@@ -16,3 +17,4 @@ opencv-python
 face_recognition
 SpeechRecognition
 pydub
+prometheus-flask-exporter

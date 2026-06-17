@@ -1,0 +1,76 @@
+name: Monitoring Config Reload → EC2
+
+# Monitoring (Prometheus + Grafana) runs inside the same docker-compose stack.
+# This workflow only runs when prometheus.yml or Grafana configs change,
+# and hot-reloads Prometheus without restarting the whole stack.
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'monitoring/**'
+      - '.github/workflows/monitoring.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  reload:
+    name: Reload monitoring config (${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'staging') }})
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Staging ─────────────────────────────────────────────────────────
+      - name: Reload monitoring on staging EC2
+        if: |
+          github.ref == 'refs/heads/develop' ||
+          github.event.inputs.environment == 'staging'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST_STAGING }}
+          username: ${{ secrets.EC2_USER_STAGING }}
+          key: ${{ secrets.EC2_SSH_KEY_STAGING }}
+          script: |
+            set -e
+            cd /opt/mimiplay
+            git fetch origin && git reset --hard origin/develop
+
+            # Hot-reload Prometheus config (no restart needed)
+            curl -s -X POST http://localhost:9090/-/reload
+            echo "Prometheus config reloaded"
+
+            # Restart Grafana to pick up provisioning changes
+            docker compose -f backend/docker-compose.yml restart mimi-grafana
+            echo "Grafana restarted"
+
+      # ── Production ──────────────────────────────────────────────────────
+      - name: Reload monitoring on production EC2
+        if: |
+          github.ref == 'refs/heads/main' ||
+          github.event.inputs.environment == 'production'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST_PRODUCTION }}
+          username: ${{ secrets.EC2_USER_PRODUCTION }}
+          key: ${{ secrets.EC2_SSH_KEY_PRODUCTION }}
+          script: |
+            set -e
+            cd /opt/mimiplay
+            git fetch origin && git reset --hard origin/main
+
+            curl -s -X POST http://localhost:9090/-/reload
+            echo "Prometheus config reloaded"
+
+            docker compose -f backend/docker-compose.yml restart mimi-grafana
+            echo "Grafana restarted"

@@ -9,7 +9,6 @@ from bson import ObjectId
 import logging
 import asyncio
 import edge_tts
-import tempfile
 import base64
 import html
 logging.basicConfig(level=logging.INFO)
@@ -83,13 +82,13 @@ _anthropic_client = None
 def _get_openai_client():
     global _openai_client
     if _openai_client is None and _openai_available and OPENAI_API_KEY:
-        _openai_client = openai.OpenAI(api_key=OPENAI_API_KEY, timeout=15.0)
+        _openai_client = openai.OpenAI(api_key=OPENAI_API_KEY, timeout=8.0)
     return _openai_client
 
 def _get_anthropic_client():
     global _anthropic_client
     if _anthropic_client is None and _anthropic_available and ANTHROPIC_API_KEY:
-        _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=12.0)
+        _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=8.0)
     return _anthropic_client
 ANTHROPIC_API_KEY = _env_secret("ANTHROPIC_API_KEY")
 
@@ -179,6 +178,14 @@ def _run_llm_startup_checks():
 _run_llm_startup_checks()
 
 app = Flask(__name__)
+
+try:
+    from prometheus_flask_exporter import PrometheusMetrics
+    metrics = PrometheusMetrics(app, default_labels={"service": "mimi-backend"})
+    metrics.info("mimi_app_info", "Mimi backend service info", version="1.0")
+except ImportError:
+    pass
+
 # CORS(app, origins=["https://mimiplay.in", "http://localhost:5173","https://www.mimiplay.in"])
 # ✅ NEW CODE
 CORS(app, origins=[
@@ -191,28 +198,25 @@ CORS(app, origins=[
 
 
 def _generate_tts_audio_base64(text: str) -> str:
-    """Generates base64 encoded MP3 audio using edge-tts."""
+    """Stream edge-tts audio into memory (no temp file) and return as base64."""
     if not text:
         return ""
-    async def generate(text, path):
-        communicate = edge_tts.Communicate(text, voice="en-IN-NeerjaExpressiveNeural", rate="-10%", pitch="+15Hz")
-        await communicate.save(path)
+    async def _stream(t):
+        buf = io.BytesIO()
+        comm = edge_tts.Communicate(t, voice="en-IN-NeerjaExpressiveNeural", rate="-10%", pitch="+15Hz")
+        async for chunk in comm.stream():
+            if chunk["type"] == "audio":
+                buf.write(chunk["data"])
+        return buf.getvalue()
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as f:
-            tmp_path = f.name
         loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(generate(text, tmp_path))
+            audio_bytes = loop.run_until_complete(_stream(text))
         finally:
             loop.close()
-        with open(tmp_path, 'rb') as f:
-            audio_data = base64.b64encode(f.read()).decode()
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        return audio_data
+        return base64.b64encode(audio_bytes).decode() if audio_bytes else ""
     except Exception as e:
-        logger.error("Error generating TTS audio: %s", e)
+        logger.error("TTS error: %s", e)
         return ""
 
 
@@ -495,8 +499,13 @@ def start_mimi_session():
         logger.warning("[start-mimi-session] Could not fetch student age: %s", e)
 
     session = _get_or_create_session(session_id, student_name, student_oid, student_age)
-    logger.info("Mimi session started for: %s | id: %s | session: %s (age stored but not used in prompts)",
+    logger.info("Mimi session started for: %s | id: %s | session: %s",
                 student_name, raw_id, session_id)
+
+    # Pre-warm all three memory tiers in a background thread so the first
+    # question response has no extra DB latency.
+    import threading as _threading
+    _threading.Thread(target=session.preload_history, daemon=True).start()
 
     import random
     greetings = [
@@ -1067,6 +1076,38 @@ def process_frame():
         return jsonify({'error': str(e)}), 500
 
 
+def _backend_save_mimi_chat(student_name, session_id, question, answer, topic="", image_url=""):
+    """Save a Q&A pair to MongoDB synchronously before returning response to client."""
+    try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        msg = {
+            "question": question,
+            "answer":   answer,
+            "image_url": image_url or "",
+            "topic":    topic or "",
+            "time":     now.strftime("%I:%M %p"),
+        }
+        existing = mimi_chats.find_one({"session_id": session_id})
+        if existing:
+            mimi_chats.update_one(
+                {"_id": existing["_id"]},
+                {"$push": {"messages": msg}, "$set": {"updated_at": now.isoformat()}, "$inc": {"total_msgs": 1}}
+            )
+        else:
+            mimi_chats.insert_one({
+                "student_name": student_name,
+                "session_id":   session_id,
+                "messages":     [msg],
+                "date":         now.strftime("%Y-%m-%d"),
+                "started_at":   now.isoformat(),
+                "updated_at":   now.isoformat(),
+                "total_msgs":   1,
+            })
+    except Exception as e:
+        logger.warning("[backend-save] Failed: %s", e)
+
+
 @app.route('/mimi-save-chat', methods=['POST'])
 @require_auth_token
 def mimi_save_chat():
@@ -1082,6 +1123,7 @@ def mimi_save_chat():
         question     = data.get("question",     "")
         answer       = data.get("answer",       "")
         image_url    = data.get("image_url",    "")
+        topic        = data.get("topic",        "")
         # child_photo  = data.get("child_photo_base64", None)  # base64 string
 
         now     = datetime.now(timezone.utc)
@@ -1102,6 +1144,7 @@ def mimi_save_chat():
             "question":   question,
             "answer":     answer,
             "image_url":  image_url,
+            "topic":      topic,
             # "child_photo": child_photo,   # base64 ya None
             "time":       time_str,
         }
@@ -1403,11 +1446,27 @@ def mimi_text_chat():
     if not session:
         session = _get_or_create_session(session_id, student_name)
 
-    result = session.process_text(text)
+    # Pass TTS function so it runs in parallel with media fetch inside process_text
+    result = session.process_text(text, tts_func=_generate_tts_audio_base64)
+
     if result and result.get("text"):
-        session.current_audio      = _generate_tts_audio_base64(result["text"])
-        session.current_audio_text = result["text"]
-        result["audio"]            = session.current_audio
+        resp_text = result["text"]
+        audio = result.get("audio")
+        if audio is None:
+            # Fallback: TTS was not done in parallel (e.g., topic shortcut path)
+            try:
+                audio = _generate_tts_audio_base64(resp_text)
+            except Exception:
+                audio = None
+        session.current_audio      = audio
+        session.current_audio_text = resp_text
+        result["audio"]            = audio
+
+        # Save to DB immediately — ensures any worker can read full history on next request
+        _backend_save_mimi_chat(
+            student_name, session_id, text, resp_text,
+            topic=result.get("topic", ""), image_url=result.get("image_url", "")
+        )
 
     return jsonify({"status": "success", "user_text": text, "data": result})
 

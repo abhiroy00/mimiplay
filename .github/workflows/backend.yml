@@ -1,0 +1,120 @@
+name: Backend CI/CD → EC2 (Docker Compose)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - 'monitoring/**'
+      - '.github/workflows/backend.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CI: Python syntax check (fast gate before deploying)
+  # ---------------------------------------------------------------------------
+  ci:
+    name: Python Syntax Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check Python syntax
+        run: |
+          python -m py_compile app.py config.py extensions.py mimi_llm_session.py
+          echo "Syntax check passed"
+
+  # ---------------------------------------------------------------------------
+  # Deploy: SSH into EC2 → git pull → docker-compose up --build
+  # Only runs on direct pushes (not PRs)
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to EC2 (${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }})
+    needs: ci
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Resolve environment ──────────────────────────────────────────────
+      - name: Resolve environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "name=production"                               >> $GITHUB_OUTPUT
+            echo "branch=main"                                   >> $GITHUB_OUTPUT
+            echo "ec2_host=${{ secrets.EC2_HOST_PRODUCTION }}"  >> $GITHUB_OUTPUT
+            echo "ec2_user=${{ secrets.EC2_USER_PRODUCTION }}"  >> $GITHUB_OUTPUT
+            echo "ssh_key=EC2_SSH_KEY_PRODUCTION"               >> $GITHUB_OUTPUT
+          else
+            echo "name=staging"                                  >> $GITHUB_OUTPUT
+            echo "branch=develop"                               >> $GITHUB_OUTPUT
+            echo "ec2_host=${{ secrets.EC2_HOST_STAGING }}"     >> $GITHUB_OUTPUT
+            echo "ec2_user=${{ secrets.EC2_USER_STAGING }}"     >> $GITHUB_OUTPUT
+            echo "ssh_key=EC2_SSH_KEY_STAGING"                  >> $GITHUB_OUTPUT
+          fi
+
+      # ── SSH deploy (staging) ─────────────────────────────────────────────
+      - name: Deploy to staging EC2
+        if: github.ref == 'refs/heads/develop'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST_STAGING }}
+          username: ${{ secrets.EC2_USER_STAGING }}
+          key: ${{ secrets.EC2_SSH_KEY_STAGING }}
+          script: |
+            set -e
+
+            # Pull latest code
+            cd /opt/mimiplay
+            git fetch origin
+            git reset --hard origin/develop
+
+            # Rebuild and restart all services
+            cd backend
+            docker compose up -d --build --remove-orphans
+
+            # Remove dangling images to free disk space
+            docker image prune -f
+
+            echo "Staging deploy complete: $(date)"
+
+      # ── SSH deploy (production) ──────────────────────────────────────────
+      - name: Deploy to production EC2
+        if: github.ref == 'refs/heads/main'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST_PRODUCTION }}
+          username: ${{ secrets.EC2_USER_PRODUCTION }}
+          key: ${{ secrets.EC2_SSH_KEY_PRODUCTION }}
+          script: |
+            set -e
+
+            # Pull latest code
+            cd /opt/mimiplay
+            git fetch origin
+            git reset --hard origin/main
+
+            # Rebuild and restart all services
+            cd backend
+            docker compose up -d --build --remove-orphans
+
+            # Remove dangling images to free disk space
+            docker image prune -f
+
+            echo "Production deploy complete: $(date)"

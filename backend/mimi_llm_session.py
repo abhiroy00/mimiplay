@@ -1,8 +1,10 @@
 import os
+import re
 import json
 import requests
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,41 @@ try:
 except ImportError:
     _openai_sdk = None
 
+try:
+    import anthropic as _anthropic_sdk
+except ImportError:
+    _anthropic_sdk = None
+
+# Module-level singletons — one HTTP connection pool reused for every question
+# (avoids 100-300ms of TCP+TLS setup per request)
+_openai_singleton  = None
+_anthropic_singleton = None
+
+def _get_openai_singleton(api_key: str):
+    global _openai_singleton
+    if _openai_singleton is None and _openai_sdk and api_key:
+        _openai_singleton = _openai_sdk.OpenAI(api_key=api_key, timeout=8.0)
+    return _openai_singleton
+
+def _get_anthropic_singleton(api_key: str):
+    global _anthropic_singleton
+    if _anthropic_singleton is None and _anthropic_sdk and api_key:
+        _anthropic_singleton = _anthropic_sdk.Anthropic(api_key=api_key, timeout=8.0)
+    return _anthropic_singleton
+
+
+# Regex to extract the "text" field from partial streaming JSON.
+# Matches as soon as the value's closing quote is followed by "," or "}"
+_TEXT_FIELD_RE = re.compile(r'"text"\s*:\s*"((?:[^"\\]|\\.)*?)"(?=\s*[,}])')
+
+def _try_extract_text(s: str):
+    """Extract the 'text' JSON field from a partial (streaming) JSON string."""
+    m = _TEXT_FIELD_RE.search(s)
+    if not m:
+        return None
+    raw = m.group(1)
+    return raw.replace('\\"', '"').replace('\\n', ' ').replace('\\\\', '\\')
+
 
 class MimiLLMSession:
     """
@@ -40,6 +77,27 @@ class MimiLLMSession:
 
     No server-side microphone, no background threads, no duplicate DB writes.
     """
+
+    TOPIC_REQUEST_PHRASES = [
+        "what topics", "which topics", "what have we discussed",
+        "what did we talk", "what topics did we", "what did we learn",
+        "list topics", "show topics", "our topics", "topics we covered",
+        "what we talked about", "remind me what we", "what all we discussed",
+        "tell me what we", "what all did we", "what have we learned",
+        "what subjects", "recap our topics",
+    ]
+
+    WEATHER_PHRASES = ["weather", "temperature", "forecast", "raining", "humid", "snowing"]
+    # Weak signal words — ambiguous on their own ("hot dog"), only count as
+    # weather intent when paired with a weather-ish question pattern below.
+    WEATHER_WEAK_WORDS = ["hot", "cold", "sunny", "rainy", "windy", "cloudy", "snow"]
+    DATETIME_PHRASES = ["what day", "what's the date", "what is the date", "today's date",
+                         "current time", "what year is it"]
+    NEWS_PHRASES = ["news", "what's happening", "what is happening",
+                    "current events", "what happened today", "in the news"]
+    CITY_STOPWORDS = {"today", "todays", "today's", "now", "right", "current", "outside", "here",
+                       "currently", "please", "like", "is", "it", "the", "a", "an", "my", "your",
+                       "our", "this", "that"}
 
     def __init__(self, openai_api_key=None, anthropic_api_key=None,
                  student_name="", session_id="", student_id=None, student_age=10):
@@ -60,89 +118,193 @@ class MimiLLMSession:
         self.openai_key    = openai_api_key    or os.environ.get("OPENAI_API_KEY")
         self.anthropic_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
         self.youtube_key   = os.environ.get("YOUTUBE_API_KEY")
+        self.tavily_key    = os.environ.get("TAVILY_API_KEY")
+        self.timezone      = os.environ.get("MIMI_TIMEZONE", "Asia/Kolkata")
 
-        # Memory system selection
-        self.use_advanced_memory = os.environ.get("USE_ADVANCED_MEMORY", "false").lower() == "true"
-        
-        if self.use_advanced_memory and ADVANCED_MEMORY_AVAILABLE and student_id:
-            # Use advanced multi-tier memory system
-            from memory_system import MemoryRouter
-            self.memory_router = MemoryRouter(str(student_id), session_id)
-            self.conversation_history = []  # Still maintain for compatibility
-            self.memory_mode = "advanced"
-            logger.info(
-                "MimiLLMSession created for '%s' | session=%s with ADVANCED multi-tier memory",
-                student_name, session_id
-            )
-        else:
-            # Use basic conversation memory
-            self.memory_router = None
-            self.conversation_history = []  # In-memory cache of conversation
-            self.memory_mode = "basic"
-            logger.info(
-                "MimiLLMSession created for '%s' | session=%s with basic conversation memory",
-                student_name, session_id
-            )
-        
-        # Conversation memory settings
-        self.max_history_messages = 40  # Keep last 40 messages (20 turns) for long conversations
+        # Real-time data block for the CURRENT turn only — computed fresh in
+        # process_text() and read by _build_system_prompt(). Never persisted.
+        self._realtime_block = ""
+
+        # ── Three-tier memory ──────────────────────────────────────────────────
+        # SHORT-TERM  : conversation_history — all turns of THIS session (in-memory)
+        # CONTEXT     : last N turns sent to LLM as messages array (sliding window)
+        # LONG-TERM   : long_term_summary — compact text built from previous sessions
+        self.conversation_history = []   # short-term: current session Q&A
+        self.long_term_summary    = ""   # long-term: compact previous-sessions text
+        self.topics_discussed     = []   # topic tracking across sessions
+        self.history_loaded       = False  # flag — avoids double DB load
+        self.max_context_turns    = 4    # send last 4 turns (8 msgs) — fewer tokens = faster
+
+        self.memory_router = None
+        self.memory_mode   = "basic"
 
         logger.info(
-            "MimiLLMSession: OpenAI=%s, Anthropic=%s, Memory=%s",
-            bool(self.openai_key), bool(self.anthropic_key), self.memory_mode
+            "MimiLLMSession: student=%s session=%s openai=%s anthropic=%s",
+            student_name, session_id, bool(self.openai_key), bool(self.anthropic_key)
         )
 
-    # ── Conversation Memory Methods ──────────────────────────────────────────
+    # ── Memory Methods ──────────────────────────────────────────────────────
 
-    def _load_conversation_history(self):
-        """Load recent conversation history from database."""
+    def _build_long_term_summary(self):
+        """
+        LONG-TERM MEMORY: scan last 5 previous sessions and produce a compact
+        text summary instead of raw Q&A pairs.  Token-efficient and clearly
+        labelled so the LLM knows this is *prior* context.
+        """
+        if not self.student_name:
+            return ""
         try:
-            if not self.session_id:
-                return
-            
-            session_doc = _mimi_chats.find_one({"session_id": self.session_id})
-            if not session_doc or "messages" not in session_doc:
-                logger.info(f"[Memory] No previous conversation found for session {self.session_id}")
-                return
-            
-            messages = session_doc.get("messages", [])
-            # Keep only the most recent messages to avoid token limits
-            recent_messages = messages[-self.max_history_messages:]
-            
-            # Convert to conversation history format
-            self.conversation_history = []
-            for msg in recent_messages:
-                role = msg.get("role", "user")
-                content = msg.get("message", "")
-                if content:
-                    self.conversation_history.append({
-                        "role": role,
-                        "content": content
-                    })
-            
-            logger.info(f"[Memory] Loaded {len(self.conversation_history)} messages from history for session {self.session_id}")
+            prev_docs = list(_mimi_chats.find(
+                {
+                    "student_name": {"$regex": f"^{self.student_name}$", "$options": "i"},
+                    "session_id":   {"$ne": self.session_id},
+                },
+                sort=[("updated_at", -1)],
+                limit=5,
+            ))
+            if not prev_docs:
+                return ""
+
+            # Collect topics (unique, ordered by most recent first)
+            seen_topics: set = set()
+            all_topics: list = []
+            last_date = prev_docs[0].get("date", "")
+            for doc in prev_docs:
+                for msg in doc.get("messages", []):
+                    t = (msg.get("topic") or "").strip()
+                    if t and t.lower() not in seen_topics:
+                        seen_topics.add(t.lower())
+                        all_topics.append(t)
+
+            parts = []
+            if last_date:
+                parts.append(f"Last session: {last_date}")
+            if all_topics:
+                parts.append(f"Topics already discussed: {', '.join(all_topics[:15])}")
+            summary = " | ".join(parts)
+            logger.info("[LTM] Summary built: %s", summary[:120])
+            return summary
         except Exception as e:
-            logger.error(f"[Memory] Failed to load conversation history: {e}")
-            self.conversation_history = []
+            logger.error("[LTM] Failed: %s", e)
+            return ""
+
+    def load_history(self):
+        """
+        Load all three memory tiers from MongoDB.
+        Called eagerly at session start so the first question has zero DB latency.
+        """
+        if self.history_loaded:
+            return
+        self.history_loaded = True
+
+        # ── SHORT-TERM: restore current-session turns from DB ──────────
+        # (needed if the worker restarted between turns)
+        try:
+            if self.session_id:
+                doc = _mimi_chats.find_one({"session_id": self.session_id})
+                if doc:
+                    for msg in doc.get("messages", []):
+                        q = msg.get("question", "")
+                        a = msg.get("answer",   "")
+                        if q: self.conversation_history.append({"role": "user",      "content": q})
+                        if a: self.conversation_history.append({"role": "assistant", "content": a})
+            logger.info("[STM] %d current-session messages loaded", len(self.conversation_history))
+        except Exception as e:
+            logger.error("[STM] Load failed: %s", e)
+
+        # ── LONG-TERM: compact previous-sessions summary ────────────────
+        self.long_term_summary = self._build_long_term_summary()
+
+        # ── TOPICS: all topics from previous + current sessions ─────────
+        self._load_topics_from_history()
+
+    # Keep old name as alias so any existing callers don't break
+    def _load_conversation_history(self):
+        self.load_history()
 
     def _add_to_history(self, role, content):
-        """Add a message to conversation history."""
+        """Add a turn to SHORT-TERM memory (in-memory, current session only)."""
         if not content:
             return
-        
-        self.conversation_history.append({
-            "role": role,
-            "content": content
-        })
-        
-        # Keep only recent messages to prevent memory bloat
-        if len(self.conversation_history) > self.max_history_messages:
-            self.conversation_history = self.conversation_history[-self.max_history_messages:]
+        self.conversation_history.append({"role": role, "content": content})
 
     def clear_memory(self):
-        """Clear conversation history. Useful for starting fresh or resolving context issues."""
         self.conversation_history = []
-        logger.info(f"[Memory] Cleared conversation history for session {self.session_id}")
+        self.history_loaded = False
+        logger.info("[Memory] Cleared for session %s", self.session_id)
+
+    # ── Topic Memory Methods ─────────────────────────────────────────────────
+
+    def _is_topic_request(self, text):
+        t = text.lower().strip()
+        return any(phrase in t for phrase in self.TOPIC_REQUEST_PHRASES)
+
+    def _load_topics_from_history(self):
+        """Load topics from previous sessions and current session messages."""
+        try:
+            topics = []
+            if self.student_name:
+                prev_sessions = list(_mimi_chats.find(
+                    {
+                        "student_name": {"$regex": f"^{self.student_name}$", "$options": "i"},
+                        "session_id":   {"$ne": self.session_id}
+                    },
+                    sort=[("updated_at", -1)],
+                    limit=3
+                ))
+                for prev_doc in prev_sessions:
+                    for msg in prev_doc.get("messages", []):
+                        t = (msg.get("topic") or "").strip()
+                        if t:
+                            topics.append(t)
+
+            if self.session_id:
+                session_doc = _mimi_chats.find_one({"session_id": self.session_id})
+                if session_doc:
+                    for msg in session_doc.get("messages", []):
+                        t = (msg.get("topic") or "").strip()
+                        if t:
+                            topics.append(t)
+
+            seen = set()
+            unique = []
+            for t in topics:
+                key = t.lower()
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(t)
+
+            self.topics_discussed = unique
+            logger.info(f"[Topics] Loaded {len(unique)} topics for {self.student_name}")
+        except Exception as e:
+            logger.error(f"[Topics] Failed to load topics: {e}")
+
+    def _build_topic_list_response(self):
+        name = self.student_name or "friend"
+        seen = set()
+        unique = []
+        for t in self.topics_discussed:
+            key = t.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(t)
+
+        if not unique:
+            text = (
+                f"Hmm, we haven't explored any topics yet {name}! "
+                "Ask me anything — space, animals, science, history — what sounds fun?"
+            )
+            return {"text": text, "topics_list": [], "image_url": None, "yt_video": None, "topic": ""}
+
+        if len(unique) == 1:
+            text = f"So far we talked about {unique[0]}! Want to go deeper into that, or explore something totally new?"
+        else:
+            topics_str = ", ".join(unique[:-1]) + f" and {unique[-1]}"
+            text = (
+                f"Oh {name}, we've covered so many cool things — {topics_str}! "
+                "Which one do you want to dive deeper into?"
+            )
+        return {"text": text, "topics_list": unique, "image_url": None, "yt_video": None, "topic": ""}
 
     def get_memory_stats(self):
         """Get statistics about current conversation memory."""
@@ -154,100 +316,199 @@ class MimiLLMSession:
         }
 
     def _build_messages_with_history(self, system_prompt, user_message):
-        """Build messages array with conversation history for LLM."""
+        """
+        Build the messages array for the LLM call using all three memory tiers.
+
+        Layout:
+          [system]            ← system prompt (includes long-term summary)
+          [user/assistant]*   ← CONTEXT MEMORY: last max_context_turns turns of this session
+          [user]              ← current question
+        """
         messages = [{"role": "system", "content": system_prompt}]
-        
-        # If using advanced memory, build enhanced context
-        if self.memory_mode == "advanced" and self.memory_router:
-            try:
-                context = self.memory_router.build_context(user_message)
-                
-                # Add context summary to system prompt
-                if context.get("summary"):
-                    enhanced_prompt = f"{system_prompt}\n\nCONTEXT FROM MEMORY:\n{context['summary']}"
-                    messages[0]["content"] = enhanced_prompt
-                
-                # Add recent working memory (conversation)
-                for msg in context.get("working", []):
-                    if msg["role"] != "system":
-                        messages.append({"role": msg["role"], "content": msg["content"]})
-                
-                # Add semantic facts as context
-                if context.get("semantic"):
-                    facts_text = "Relevant facts: " + "; ".join([f["fact"] for f in context["semantic"][:3]])
-                    messages.append({"role": "system", "content": facts_text})
-                
-            except Exception as e:
-                logger.error(f"[Memory] Advanced memory context build failed: {e}")
-                # Fallback to basic history
-                for msg in self.conversation_history:
-                    if msg["role"] != "system":
-                        messages.append(msg)
-        else:
-            # Basic memory: Add conversation history
-            for msg in self.conversation_history:
-                if msg["role"] != "system":
-                    messages.append(msg)
-        
-        # Add current user message
+
+        # CONTEXT MEMORY: send last N turns of the current session
+        context_msgs = self.conversation_history[-(self.max_context_turns * 2):]
+        for msg in context_msgs:
+            if msg["role"] != "system":
+                messages.append(msg)
+
         messages.append({"role": "user", "content": user_message})
-        
         return messages
+
+    # ── Real-time data ───────────────────────────────────────────────────────
+
+    _CITY_PATTERNS = [
+        r"\b(?:weather|temperature|forecast|raining|sunny|cold|hot)\b.*?\b(?:in|at|for|of)\b\s+"
+        r"([A-Za-z][A-Za-z\s]{1,30}?)(?:\?|$|[.,!]|\s+(?:right\s+now|today|now|currently)\b)",
+        r"\b(?:in|at|for|of)\b\s+([A-Za-z][A-Za-z\s]{1,30}?)\s+\b(?:weather|temperature|forecast)\b",
+        r"\btoday'?s?\s+([A-Za-z][A-Za-z\s]{1,30}?)\s+\b(?:weather|temperature|forecast)\b",
+        r"\b([A-Za-z]+)\s+\b(?:weather|temperature|forecast)\b",
+    ]
+
+    def _detect_realtime_intents(self, text: str) -> set:
+        t = text.lower()
+        intents = set()
+        weak_weather_hit = any(re.search(rf"\b{w}\b", t) for w in self.WEATHER_WEAK_WORDS) and \
+            re.search(r"\b(is it|outside|out there|today|right now)\b", t)
+        if any(p in t for p in self.WEATHER_PHRASES) or weak_weather_hit:
+            intents.add("weather")
+        if any(p in t for p in self.DATETIME_PHRASES) or \
+           re.search(r"\b(what'?s?|tell me|current|today'?s?)\b.*\b(date|day|time|year)\b", t):
+            intents.add("datetime")
+        if any(p in t for p in self.NEWS_PHRASES):
+            intents.add("news")
+        return intents
+
+    def _extract_city(self, text: str):
+        t = text.strip()
+        for pattern in self._CITY_PATTERNS:
+            m = re.search(pattern, t, re.IGNORECASE)
+            if not m:
+                continue
+            words = [w for w in m.group(1).strip().split() if w.lower() not in self.CITY_STOPWORDS]
+            city = " ".join(words).strip()
+            if city and len(city) > 1:
+                return city
+        return None
+
+    def _get_current_datetime_str(self) -> str:
+        now = datetime.now(ZoneInfo(self.timezone))
+        return now.strftime("%A, %B %d, %Y, %I:%M %p (%Z)")
+
+    def _fetch_weather(self, city: str):
+        try:
+            r = requests.get(f"https://wttr.in/{city}", params={"format": "j1"}, timeout=3)
+            cur = r.json().get("current_condition", [{}])[0]
+            temp = cur.get("temp_C")
+            desc = (cur.get("weatherDesc", [{}])[0] or {}).get("value")
+            if temp and desc:
+                return f"{temp}°C, {desc}"
+        except Exception as e:
+            logger.error("Weather fetch failed for %s: %s", city, e)
+        return None
+
+    def _fetch_kid_news(self, query: str):
+        if not self.tavily_key:
+            return None
+        try:
+            r = requests.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": self.tavily_key,
+                    "query": f"{query} kid friendly news today",
+                    "search_depth": "basic",
+                    "max_results": 3,
+                    "include_answer": True,
+                },
+                timeout=4,
+            )
+            data = r.json()
+            answer = data.get("answer")
+            if answer:
+                return answer[:400]
+            titles = [res.get("title", "") for res in data.get("results", [])[:3] if res.get("title")]
+            if titles:
+                return "; ".join(titles)
+        except Exception as e:
+            logger.error("Tavily news fetch failed: %s", e)
+        return None
+
+    def _build_realtime_block(self, user_text: str) -> str:
+        """
+        Fetch live data for THIS turn only, based on detected intent in user_text.
+        Returns a short text block to inject into the system prompt, or "" if
+        no real-time intent was detected.
+        """
+        intents = self._detect_realtime_intents(user_text)
+        if not intents:
+            return ""
+
+        lines = []
+        if "datetime" in intents:
+            lines.append(f"Current date & time: {self._get_current_datetime_str()}")
+
+        if "weather" in intents:
+            city = self._extract_city(user_text)
+            if city:
+                live = self._fetch_weather(city)
+                lines.append(f"Live weather in {city}: {live}" if live else
+                             f"(Weather lookup for {city} failed — apologize briefly and suggest trying again.)")
+            else:
+                lines.append("(Child asked about weather but gave no city — ask them which city/place they're in.)")
+
+        if "news" in intents:
+            news = self._fetch_kid_news(user_text)
+            lines.append(f"Latest kid-safe news snippet: {news}" if news else
+                         "(No live news available right now — answer from general knowledge and say news may be a bit old.)")
+
+        return "\n".join(lines)
 
     # ── Prompt builder ────────────────────────────────────────────────────────
 
+    def get_memory_context(self) -> str:
+        """
+        Compact text summary of all memory tiers, for injection into the system prompt:
+          - long-term summary (past sessions, from MongoDB)
+          - topics already discussed (across past + current session)
+          - working memory (last few turns of THIS session)
+        """
+        # NOTE: working memory (recent turns of THIS session) is intentionally
+        # excluded here — _build_messages_with_history() already sends those
+        # turns as separate user/assistant messages, so repeating them here
+        # would double the tokens for no benefit.
+        parts = []
+        if self.long_term_summary:
+            parts.append(f"Past sessions: {self.long_term_summary}")
+        if self.topics_discussed:
+            parts.append(f"Topics already discussed: {', '.join(self.topics_discussed[:15])}")
+
+        return "\n".join(parts) if parts else "No prior memory yet — this is a fresh start."
+
     def _build_system_prompt(self) -> str:
-        now = datetime.now()
-        current_datetime = now.strftime("%A, %d %B %Y, %I:%M %p")
         name = self.student_name or "friend"
-        max_tokens = 600
 
-        prompt = f"""IDENTITY: You are Mimi — a warm, playful, and brilliant AI best friend for children aged 4–14. You are like an enthusiastic older sister who loves learning and genuinely wants {name} to love learning too. You ONLY speak English.
+        memory_prompt = (
+            "Always check the memory context below before answering. "
+            "If the child asks about something previously discussed, reference it naturally "
+            "(e.g. \"Last time we talked about planets - remember Jupiter?\"). "
+            "Connect new questions to existing knowledge when it fits naturally. "
+            "If a fact is new, you may briefly say you'll remember it."
+        )
 
-CORE MISSION: Keep {name} talking! Every response must make them want to reply. Your two goals are (1) teach something interesting and (2) pull out more words from {name} so they practise English naturally.
+        playful_prompt = (
+            f"You are Mimi - {name}'s playful, magical AI learning buddy, like a fun older sister. "
+            "Warm, excited, full of curiosity. Use expressive words (\"Wow!\", \"Hooray!\", \"Let's explore!\"), "
+            "simple child-friendly humour, and occasional emojis (max 1-2). "
+            "Turn learning into a tiny story or game. Celebrate correct answers. "
+            "If the child says \"I don't know\", encourage them warmly. "
+            "Use everyday examples for tricky ideas. English only."
+        )
 
-━━━ CONVERSATION STYLE ━━━
-• Be enthusiastic and personal. Use "Wow!", "Oh that's so cool!", "I was JUST thinking about that!", "Great question!"
-• ALWAYS end your text with one engaging follow-up question that invites {name} to respond. Make it specific and easy to answer.
-• If {name} gives a short answer ("yes", "no", "ok", "idk"), gently dig deeper: "Yes! Tell me more — what made you think of that?" or "Hmm, what do YOU think happens next?"
-• React to what {name} says BEFORE launching into facts: "Oh you love football? That's amazing!"
-• Use their name ({name}) naturally in the conversation.
+        memory_context = self.get_memory_context()
+        realtime_block = (
+            f"\n\nREAL-TIME DATA (fetched just now — treat as accurate and current, "
+            f"weave it naturally into your answer):\n{self._realtime_block}"
+            if self._realtime_block else ""
+        )
 
-━━━ ENGLISH IMPROVEMENT (do this invisibly — never like a teacher) ━━━
-• If {name} makes a grammar mistake, weave the correct form into your reply WITHOUT pointing it out. They said "I goed"? You say "Oh, you went there! That sounds so fun!"
-• Introduce one interesting new word every few exchanges, explained in a child-friendly way: "Scientists call it 'bioluminescence' — it means the fish makes its own light, like a living torch!"
-• Ask {name} to DESCRIBE things: "Can you describe what it looks like?", "How did it make you feel?"
-• Praise good expression naturally: "I love how you described that!" or "That's exactly the right word!"
+        media_rule = (
+            "MEDIA: only fill image_search_term/youtube_search_term when the answer's main subject is a specific, "
+            'concrete, picturable thing — an animal, place, object, person, planet, plant, vehicle, etc. '
+            '(e.g. "national animal of India" -> bengal tiger -> fill both; "biggest ocean creature" -> blue whale -> fill both). '
+            "Leave BOTH as empty strings \"\" for greetings, small talk, opinions, feelings, yes/no answers, "
+            "math, abstract ideas, follow-up clarifying questions, or anything with no single concrete visual subject."
+        )
 
-━━━ MEMORY & CONTINUITY (CRITICAL) ━━━
-• Remember EVERYTHING from this session. Reference earlier topics, interests, and things {name} shared.
-• Build connections: if they mentioned they like animals earlier and now ask about space, link them: "Since you love animals, you'd be amazed — there are tiny water bears that can survive in outer space!"
-• After several exchanges, recap interests: "We've talked about so much — you really love space and animals, don't you?"
-• Never repeat the same fact twice in one session.
-
-━━━ KNOWLEDGE, FACTS & CURRENT EVENTS ━━━
-• Today is {current_datetime}. Use this! Mention upcoming holidays, current season, recent world events by date context.
-• Share ONE surprising fact per response: "Fun fact: Honey never expires — they found 3,000-year-old honey in Egyptian tombs that was still edible!"
-• Relate everything to {name}'s world: compare to pizza, school, games, movies, things kids know.
-• For news/world events: use the date to mention what is happening in the world right now (sports events, space missions, technology launches, festivals).
-• Topics you love: science, space, animals, history, geography, technology, sports, world records, mysteries, food, inventions, languages, maths tricks, famous people, current events.
-
-━━━ RESPONSE RULES ━━━
-• Speak English only. 3–5 sentences in "text". MUST end with a question.
-• Never be boring or lecture-like. Every sentence should feel like chatting with a friend.
-• SAFETY: Never produce violent, sexual, or harmful content. Redirect gently to something interesting.
-
-━━━ RESPONSE FORMAT ━━━
-Reply ONLY with a JSON object — no text outside JSON.
-Keys:
-- "text": Your response (3–5 sentences, ends with a question to {name})
-- "image_search_term": Specific Wikimedia Commons search term (e.g. "giant panda eating bamboo China")
-- "youtube_search_term": YouTube search term — always include "for kids" unless topic already has it. NEVER null.
-
-Example:
-{{"text": "Elephants are absolutely incredible, {name}! Did you know they can recognise themselves in a mirror — only a handful of animals can do that, like dolphins and us humans! They also never forget their friends, even after many years apart. What's your favourite thing about elephants — is it their size, their trunk, or something else?", "image_search_term": "African elephant herd savanna wildlife", "youtube_search_term": "elephant facts for kids"}}"""
-
-        return prompt, max_tokens
+        prompt = (
+            f"{memory_prompt}\n\n{playful_prompt}\n\n"
+            f"Current memory context:\n{memory_context}"
+            f"{realtime_block}\n\n"
+            f'RULES: Vary openers ("Oh wow!", "No way!", "I love that!", "Wait—"). '
+            f"Give 1 cool fact. End with 1 easy open-ended question. Max 30 words. Never repeat facts from this chat.\n"
+            f"{media_rule}\n"
+            f'REPLY AS JSON ONLY: {{"text":"...","image_search_term":"...","youtube_search_term":"... for kids","topic":"..."}}'
+        )
+        return prompt, 120
 
     # ── LLM helpers ───────────────────────────────────────────────────────────
 
@@ -255,107 +516,47 @@ Example:
         api_key = self.openai_key
         if not api_key:
             return None
-        
-        # Load conversation history on first call
-        if not self.conversation_history:
-            self._load_conversation_history()
-        
+
         system_instructions, max_tokens = self._build_system_prompt()
-        user_message = prompt  # clean input; system prompt sets all context
-
-        # Build messages with conversation history
-        messages = self._build_messages_with_history(system_instructions, user_message)
+        messages = self._build_messages_with_history(system_instructions, prompt)
 
         try:
-            if _openai_sdk is not None:
-                client = _openai_sdk.OpenAI(api_key=api_key)
-                resp = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=messages,
-                    temperature=0.8,
-                    max_tokens=max_tokens,
-                )
-                text = resp.choices[0].message.content
-                if text:
-                    return text
+            client = _get_openai_singleton(api_key)
+            if client is None:
                 return None
-        except Exception as e:
-            logger.error("OpenAI SDK call failed: %s", e, exc_info=True)
-
-        # HTTP fallback
-        try:
-            r = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "gpt-4o-mini",
-                    "messages": messages,
-                    "temperature": 0.8,
-                    "max_tokens": max_tokens,
-                },
-                timeout=15, #timeout=60
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                temperature=0.8,
+                max_tokens=max_tokens,
             )
-            r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"] or None
+            return resp.choices[0].message.content or None
         except Exception as e:
-            logger.error("OpenAI HTTP call failed: %s", e, exc_info=True)
+            logger.error("OpenAI call failed: %s", e)
             return None
 
     def _call_anthropic(self, prompt):
         api_key = self.anthropic_key
         if not api_key:
             return None
-        
-        # Load conversation history on first call
-        if not self.conversation_history:
-            self._load_conversation_history()
-        
-        system_instructions, max_tokens = self._build_system_prompt()
-        user_message = prompt  # clean input; system prompt sets all context
 
-        # Build messages with conversation history (excluding system - Anthropic handles it separately)
-        messages = []
-        for msg in self.conversation_history:
-            if msg["role"] != "system":
-                messages.append(msg)
-        messages.append({"role": "user", "content": user_message})
-        
+        system_instructions, max_tokens = self._build_system_prompt()
+        messages = [m for m in self.conversation_history if m["role"] != "system"]
+        messages.append({"role": "user", "content": prompt})
+
         try:
-            import anthropic as _anth_sdk
-            client = _anth_sdk.Anthropic(api_key=api_key)
+            client = _get_anthropic_singleton(api_key)
+            if client is None:
+                return None
             resp = client.messages.create(
-                model="claude-3-haiku-20240307",
-                system=system_instructions,  # Anthropic uses separate system parameter
+                model="claude-haiku-4-5-20251001",
+                system=system_instructions,
                 max_tokens=max_tokens,
                 messages=messages,
             )
             return resp.content[0].text
-        except ImportError:
-            pass
         except Exception as e:
-            logger.error("Anthropic SDK call failed: %s", e)
-
-        # HTTP fallback
-        try:
-            r = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "claude-3-haiku-20240307",
-                    "system": system_instructions,
-                    "max_tokens": max_tokens,
-                    "messages": messages,
-                },
-                timeout=12, #timeout=20,
-            )
-            r.raise_for_status()
-            return r.json()["content"][0]["text"]
-        except Exception as e:
-            logger.error("Anthropic HTTP call failed: %s", e)
+            logger.error("Anthropic call failed: %s", e)
             return None
 
     def _parse_json_response(self, text):
@@ -381,7 +582,7 @@ Example:
                     "iiprop": "url", "format": "json",
                 },
                 headers={"User-Agent": "MimiBot/1.0"},
-                timeout=10,
+                timeout=3,
             )
             for page in r.json().get("query", {}).get("pages", {}).values():
                 url = page.get("imageinfo", [{}])[0].get("url")
@@ -407,7 +608,7 @@ Example:
                     "safeSearch": "strict", "videoEmbeddable": "true",
                     "maxResults": 3, "key": api_key,
                 },
-                timeout=10,
+                timeout=3,
             )
             for item in r.json().get("items", []):
                 id_block = item.get("id", {})
@@ -419,171 +620,239 @@ Example:
             logger.error("YouTube API error: %s", e)
         return None
 
-    def _get_llm_response_json(self, user_text):
-        # Check cache first for faster responses
+    def _get_openai_streaming(self, user_text: str, tts_func):
+        """
+        Stream GPT-4o-mini. As soon as the 'text' JSON field is complete in the
+        stream, kick off TTS in a background thread so TTS overlaps with the
+        remaining LLM generation time (~0.5-1s saving).
+        Returns result dict or None on any error (caller falls back to non-streaming).
+        """
+        import concurrent.futures
+        client = _get_openai_singleton(self.openai_key)
+        if not client:
+            return None
+
+        system_prompt, max_tokens = self._build_system_prompt()
+        messages = self._build_messages_with_history(system_prompt, user_text)
+
+        full_text = ""
+        tts_future = None
+        tts_text = None
+        tts_ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
         try:
-            from cache_helper import get_cache
-            cache = get_cache()
-            
-            if cache.enabled:
-                # Generate context hash from recent conversation
-                context_summary = str(self.conversation_history[-4:]) if len(self.conversation_history) > 0 else ""
-                cached_response = cache.get(user_text, context_summary)
-                
-                if cached_response:
-                    logger.info("[mimi] Returning cached response (instant!)")
-                    return cached_response
+            stream = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                temperature=0.8,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if not delta:
+                    continue
+                full_text += delta
+                # Fire TTS as soon as "text" field is fully received.
+                # We know it's complete when "image_search_term" key appears next.
+                if tts_future is None and '"image_search_term"' in full_text:
+                    extracted = _try_extract_text(full_text)
+                    if extracted:
+                        tts_text = extracted
+                        tts_future = tts_ex.submit(tts_func, extracted)
         except Exception as e:
-            logger.warning(f"[mimi] Cache check failed: {e}")
-        
-        # Not in cache, get fresh response
-        text = None
+            logger.error("OpenAI streaming error: %s", e)
+            tts_ex.shutdown(wait=False)
+            return None
+
+        data = self._parse_json_response(full_text)
+        resp_text = (data.get("text") if data else None) or tts_text or full_text.strip()
+        topic     = (data.get("topic") if data else "") or ""
+        search    = (data.get("image_search_term") if data else "") or ""
+        yt_search = (data.get("youtube_search_term") if data else "") or search
+
+        # Media fetches run while we wait on TTS (which started early)
+        media_ex = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        img_fut = yt_fut = None
+        if search:    img_fut = media_ex.submit(self._fetch_wikimedia_image, search)
+        if yt_search: yt_fut  = media_ex.submit(self._fetch_youtube_video_url, yt_search)
+
+        audio = None
+        if tts_future:
+            try:   audio = tts_future.result(timeout=8)
+            except Exception: pass
+        elif resp_text:
+            # Text field wasn't extracted early (very short response) — run TTS now
+            try:   audio = tts_func(resp_text)
+            except Exception: pass
+        tts_ex.shutdown(wait=False)
+
+        image_url = yt_video = None
+        if img_fut:
+            try:   image_url = img_fut.result(timeout=2)
+            except Exception: pass
+        if yt_fut:
+            try:   yt_video  = yt_fut.result(timeout=2)
+            except Exception: pass
+        media_ex.shutdown(wait=False)
+
+        logger.info("[stream] done — tts:%s img:%s yt:%s", bool(audio), bool(image_url), bool(yt_video))
+        return {"text": resp_text, "image_url": image_url, "yt_video": yt_video, "audio": audio, "topic": topic}
+
+    def _get_llm_response_json(self, user_text, tts_func=None):
+        """
+        Get LLM response and run TTS + media fetch in parallel.
+        Tries OpenAI streaming first (overlaps TTS with LLM generation).
+        Falls back to non-streaming / Anthropic on error.
+        """
+        import concurrent.futures
+
+        # ── Fast path: OpenAI streaming ──────────────────────────────────────
+        if self.openai_key and tts_func:
+            result = self._get_openai_streaming(user_text, tts_func)
+            if result:
+                return result
+
+        # ── Fallback: non-streaming ──────────────────────────────────────────
+        llm_text = None
         openai_err = anthropic_err = None
 
         if self.openai_key:
             try:
-                text = self._call_openai(user_text)
+                llm_text = self._call_openai(user_text)
             except Exception as e:
                 openai_err = str(e)
 
-        if not text and self.anthropic_key:
+        if not llm_text and self.anthropic_key:
             try:
-                text = self._call_anthropic(user_text)
+                llm_text = self._call_anthropic(user_text)
             except Exception as e:
                 anthropic_err = str(e)
 
-        if not text:
-            if not self.openai_key and not self.anthropic_key:
-                msg = "No API keys configured. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY."
-            else:
-                msg = f"AI Error. OpenAI: {openai_err or 'failed'}, Anthropic: {anthropic_err or 'failed'}"
-            return {"text": msg, "image_url": None, "yt_video": None}
+        if not llm_text:
+            msg = ("No API keys configured." if not self.openai_key and not self.anthropic_key
+                   else f"AI Error. OpenAI: {openai_err or 'failed'}, Anthropic: {anthropic_err or 'failed'}")
+            return {"text": msg, "image_url": None, "yt_video": None, "audio": None, "topic": ""}
 
-        data = self._parse_json_response(text)
+        data = self._parse_json_response(llm_text)
+        resp_text = (data.get("text") if data else llm_text.strip()) or ""
+        topic     = (data.get("topic") if data else "") or ""
+
         if not data:
-            response = {"text": text.strip(), "image_url": None, "yt_video": None}
-            return response
+            return {"text": resp_text, "image_url": None, "yt_video": None, "audio": None, "topic": ""}
 
         search    = data.get("image_search_term") or ""
-        yt_search = data.get("youtube_search_term") or search or " ".join((data.get("text") or "").split()[:4])
+        yt_search = data.get("youtube_search_term") or search
 
-        # Check if Celery is enabled for async media fetching
-        use_celery = os.environ.get("USE_CELERY", "false").lower() == "true"
-        
-        if use_celery:
-            # Async mode: Return text immediately, fetch media in background
-            try:
-                from tasks import fetch_wikimedia_image, fetch_youtube_video
-                
-                # Trigger async tasks (don't wait for results)
-                if search:
-                    fetch_wikimedia_image.delay(search)
-                if yt_search:
-                    fetch_youtube_video.delay(yt_search, self.youtube_key or "")
-                
-                logger.info("[mimi] Media fetching triggered async (Celery)")
-                response = {
-                    "text": data.get("text") or "",
-                    "image_url": None,  # Will be fetched async
-                    "yt_video": None,   # Will be fetched async
-                }
-            except ImportError:
-                logger.warning("[mimi] Celery not available, falling back to parallel sync")
-                use_celery = False
-        
-        if not use_celery:
-            # Sync mode: Parallel fetch with reduced timeout
-            import concurrent.futures
-            image_url = None
-            yt_video  = None
-            
-            logger.info("[mimi] Starting parallel sync fetch for image+youtube")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                futures = {}
-                if search:
-                    futures['image'] = executor.submit(self._fetch_wikimedia_image, search)
-                if yt_search:
-                    futures['yt'] = executor.submit(self._fetch_youtube_video_url, yt_search)
-                
-                # Reduced timeout for faster response (3s instead of 8s)
-                if 'image' in futures:
-                    try:
-                        image_url = futures['image'].result(timeout=3)
-                    except Exception:
-                        image_url = None
-                if 'yt' in futures:
-                    try:
-                        yt_video = futures['yt'].result(timeout=3)
-                    except Exception:
-                        yt_video = None
-                
-                logger.info("[mimi] Parallel fetch done — image:%s yt:%s", bool(image_url), bool(yt_video))
-            
-            response = {
-                "text": data.get("text") or "",
-                "image_url": image_url,
-                "yt_video": yt_video,
-            }
-        
-        # Cache the response for future requests
-        try:
-            from cache_helper import get_cache
-            cache = get_cache()
-            if cache.enabled:
-                context_summary = str(self.conversation_history[-4:]) if len(self.conversation_history) > 0 else ""
-                cache.set(user_text, response, context_summary)
-        except Exception as e:
-            logger.warning(f"[mimi] Cache save failed: {e}")
-        
-        return response
+        # ── All three I/O tasks in parallel: TTS + image + youtube ──────────
+        # IMPORTANT: don't use `with` — that blocks until ALL threads finish.
+        # Instead, collect results with short timeouts then shutdown without waiting.
+        # Slow Wikimedia/YouTube threads run in background and die when they timeout.
+        logger.info("[mimi] Parallel: TTS + image + youtube")
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+        futures = {}
+        if tts_func and resp_text:
+            futures["tts"]   = ex.submit(tts_func, resp_text)
+        if search:
+            futures["image"] = ex.submit(self._fetch_wikimedia_image, search)
+        if yt_search:
+            futures["yt"]    = ex.submit(self._fetch_youtube_video_url, yt_search)
+
+        audio = image_url = yt_video = None
+        if "tts" in futures:
+            try:   audio     = futures["tts"].result(timeout=8)
+            except Exception: pass
+        if "image" in futures:
+            try:   image_url = futures["image"].result(timeout=2)
+            except Exception: pass
+        if "yt" in futures:
+            try:   yt_video  = futures["yt"].result(timeout=2)
+            except Exception: pass
+
+        ex.shutdown(wait=False)   # don't block — slow threads finish in background
+        logger.info("[mimi] Done — tts:%s image:%s yt:%s", bool(audio), bool(image_url), bool(yt_video))
+
+        return {
+            "text":      resp_text,
+            "image_url": image_url,
+            "yt_video":  yt_video,
+            "audio":     audio,
+            "topic":     topic,
+        }
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def process_text(self, user_text):
+    def preload_history(self):
         """
-        Called by /mimi-chat-audio for each user utterance.
-        Returns the LLM response dict.
-        DB save is intentionally NOT done here — /mimi-save-chat handles it.
+        Eagerly warm all three memory tiers.
+        Called from /start-mimi-session in a background thread so the first
+        question response has zero extra DB latency.
+        """
+        self.load_history()
+
+    def process_text(self, user_text, tts_func=None):
+        """
+        Called by /mimi-text-chat for each user utterance.
+        tts_func: optional callable — runs in parallel with media fetch for lower latency.
+        Returns the LLM response dict (includes "audio" key if tts_func provided).
         """
         self.current_action = "thinking"
         self.current_text   = "Thinking..."
-        
-        try:
-            # Get LLM response FIRST — history does NOT yet contain this turn so
-            # _build_messages_with_history won't duplicate the user message.
-            result = self._get_llm_response_json(user_text)
 
-            # Add both sides to history AFTER the call, in the correct order.
+        # Load all three memory tiers on first turn (history_loaded guards against double-load).
+        # preload() is called at session start so this is usually already done.
+        if not self.history_loaded:
+            self.load_history()
+
+        try:
+            # ── Topic list shortcut — skip LLM entirely ──────────────
+            if self._is_topic_request(user_text):
+                result = self._build_topic_list_response()
+                self._add_to_history("user", user_text)
+                self._add_to_history("assistant", result.get("text", ""))
+                self.current_text   = result.get("text", "")
+                self.current_action = "done"
+                result["audio"]     = None   # caller will do TTS separately if needed
+                logger.info(f"[Topics] Topic list returned — {len(result.get('topics_list', []))} topics")
+                return result
+
+            # ── Real-time data (weather/date-time/news) for THIS turn only ──
+            self._realtime_block = self._build_realtime_block(user_text)
+            if self._realtime_block:
+                logger.info("[Realtime] Injected: %s", self._realtime_block[:120])
+
+            # ── Normal LLM flow — TTS runs in parallel with media fetch ──
+            result = self._get_llm_response_json(user_text, tts_func=tts_func)
+
+            # Extract and track topic
+            topic = (result.get("topic") or "").strip()
+            if topic:
+                key = topic.lower()
+                if key not in {t.lower() for t in self.topics_discussed}:
+                    self.topics_discussed.append(topic)
+            result["topic"] = topic
+
+            # Update in-memory history AFTER the LLM call
             self._add_to_history("user", user_text)
             assistant_response = result.get("text", "")
             if assistant_response:
                 self._add_to_history("assistant", assistant_response)
-            
-            # Update advanced memory system if enabled
-            if self.memory_mode == "advanced" and self.memory_router:
-                try:
-                    metadata = {
-                        "image_url": result.get("image_url"),
-                        "video_url": result.get("yt_video"),
-                        "student_name": self.student_name
-                    }
-                    self.memory_router.update_memories(user_text, assistant_response, metadata)
-                    logger.info(f"[Memory] Advanced memory updated for session {self.session_id}")
-                except Exception as e:
-                    logger.error(f"[Memory] Failed to update advanced memory: {e}")
-            
+
             self.current_text   = assistant_response
             self.current_image  = result.get("image_url")
             self.current_video  = result.get("yt_video")
             self.current_action = "done"
-            
-            logger.info(f"[Memory] Conversation history now has {len(self.conversation_history)} messages (mode: {self.memory_mode})")
+
+            logger.info(
+                "[Memory] %d msgs | [Topics] %d topics",
+                len(self.conversation_history), len(self.topics_discussed)
+            )
             return result
         except Exception as e:
             logger.error("Error in process_text: %s", e)
-            error_msg = "Sorry, I encountered an error while thinking."
+            error_msg = "Sorry, I had a little hiccup! Ask me again?"
             self._add_to_history("assistant", error_msg)
-            return {"text": error_msg, "error": str(e)}
+            return {"text": error_msg, "error": str(e), "topic": "", "audio": None}
 
 
 if __name__ == "__main__":

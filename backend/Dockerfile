@@ -35,4 +35,4 @@ RUN rm -f .env .env.*
 EXPOSE 8080
 
 # Use gunicorn with gevent for better async performance
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080", "--workers", "2", "--worker-class", "gevent", "--worker-connections", "1000", "--timeout", "60", "--keep-alive", "5"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080", "--workers", "1", "--worker-class", "gevent", "--worker-connections", "100", "--timeout", "60", "--keep-alive", "5"]

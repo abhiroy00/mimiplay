@@ -1,0 +1,131 @@
+name: Frontend CI/CD → AWS Amplify
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'frontend/**'
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CI: Lint + Build validation (runs on all pushes and PRs)
+  # ---------------------------------------------------------------------------
+  ci:
+    name: Lint & Build Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build (staging)
+        if: github.ref == 'refs/heads/develop' || github.base_ref == 'develop'
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL_STAGING }}
+
+      - name: Build (production)
+        if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL_PRODUCTION }}
+
+  # ---------------------------------------------------------------------------
+  # Deploy: Trigger Amplify to pull from GitHub and rebuild
+  # Only runs on direct pushes to main or develop (not PRs)
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to Amplify (${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }})
+    needs: ci
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Resolve Amplify branch
+        id: branch
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "name=main" >> $GITHUB_OUTPUT
+            echo "env=production" >> $GITHUB_OUTPUT
+          else
+            echo "name=develop" >> $GITHUB_OUTPUT
+            echo "env=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger Amplify job
+        id: trigger
+        run: |
+          JOB_ID=$(aws amplify start-job \
+            --app-id "${{ secrets.AMPLIFY_APP_ID }}" \
+            --branch-name "${{ steps.branch.outputs.name }}" \
+            --job-type RELEASE \
+            --commit-id "${{ github.sha }}" \
+            --commit-message "${{ github.event.head_commit.message }}" \
+            --query 'jobSummary.jobId' \
+            --output text)
+          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
+          echo "Triggered Amplify job: $JOB_ID"
+
+      - name: Wait for Amplify deployment
+        run: |
+          JOB_ID="${{ steps.trigger.outputs.job_id }}"
+          BRANCH="${{ steps.branch.outputs.name }}"
+          APP_ID="${{ secrets.AMPLIFY_APP_ID }}"
+          echo "Polling Amplify job $JOB_ID on branch $BRANCH..."
+
+          for i in $(seq 1 40); do
+            STATUS=$(aws amplify get-job \
+              --app-id "$APP_ID" \
+              --branch-name "$BRANCH" \
+              --job-id "$JOB_ID" \
+              --query 'job.summary.status' \
+              --output text)
+
+            echo "[$i/40] Status: $STATUS"
+
+            case "$STATUS" in
+              SUCCEED)
+                echo "Deployment succeeded on ${{ steps.branch.outputs.env }}!"
+                exit 0 ;;
+              FAILED|CANCELLED)
+                echo "Deployment $STATUS"
+                exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "Timed out waiting for Amplify deployment"
+          exit 1
