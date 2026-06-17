@@ -1,7 +1,7 @@
 // import React, { useState } from 'react';
 // import { Card, Button, Input, Modal, Avatar } from '../../../components/shared';
 // import { Search, CheckCircle, XCircle, Eye, Mail, Phone, User } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // const ParentManagement = () => {
 //   const [searchQuery, setSearchQuery] = useState('');
@@ -152,7 +152,7 @@
 //             </thead>
 //             <tbody>
 //               {filteredParents.map((parent, index) => (
-//                 <motion.tr
+//                 <Motion.tr
 //                   key={parent.id}
 //                   initial={{ opacity: 0, y: 20 }}
 //                   animate={{ opacity: 1, y: 0 }}
@@ -226,7 +226,7 @@
 //                       )}
 //                     </div>
 //                   </td>
-//                 </motion.tr>
+//                 </Motion.tr>
 //               ))}
 //             </tbody>
 //           </table>
@@ -310,7 +310,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Modal, Avatar } from '../../../components/shared';
 import { Search, CheckCircle, XCircle, Eye, Mail, Phone, User } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { API_BASE_URL } from '../../../config';
 
 const ParentManagement = () => {
@@ -349,12 +349,6 @@ const ParentManagement = () => {
         setParents(formatted);
       });
   }, []);
-
-  useEffect(() => {
-    if (selectedParent) {
-      setEditForm(selectedParent);
-    }
-  }, [selectedParent]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -530,7 +524,7 @@ const handleReject = async (parent) => {
             </thead>
             <tbody>
               {filteredParents.map((parent, index) => (
-                <motion.tr
+                <Motion.tr
                   key={parent.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -641,7 +635,7 @@ const handleReject = async (parent) => {
                       )}
                     </div>
                   </td>
-                </motion.tr>
+                </Motion.tr>
               ))}
             </tbody>
           </table>

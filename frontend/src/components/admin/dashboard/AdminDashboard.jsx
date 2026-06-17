@@ -1,7 +1,7 @@
 // import React from 'react';
 // import { Card, Button } from '../../../components/shared';
 // import { Users, UserPlus, TrendingUp, AlertCircle, CheckCircle, Clock } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // const AdminDashboard = () => {
 //   const stats = {
@@ -94,7 +94,7 @@
 
 //           <div className="space-y-3">
 //             {pendingApprovals.map((item, index) => (
-//               <motion.div
+//               <Motion.div
 //                 key={item.id}
 //                 initial={{ opacity: 0, x: -20 }}
 //                 animate={{ opacity: 1, x: 0 }}
@@ -122,7 +122,7 @@
 //                     Reject
 //                   </Button>
 //                 </div>
-//               </motion.div>
+//               </Motion.div>
 //             ))}
 //           </div>
 
@@ -140,7 +140,7 @@
 //           <h2 className="text-2xl font-bold text-text mb-4">Recent Activity</h2>
 //           <div className="space-y-3">
 //             {recentActivity.map((activity, index) => (
-//               <motion.div
+//               <Motion.div
 //                 key={index}
 //                 initial={{ opacity: 0, y: 10 }}
 //                 animate={{ opacity: 1, y: 0 }}
@@ -162,7 +162,7 @@
 //                   <p className="text-sm text-text/60">{activity.user}</p>
 //                   <p className="text-xs text-text/50 mt-1">{activity.time}</p>
 //                 </div>
-//               </motion.div>
+//               </Motion.div>
 //             ))}
 //           </div>
 //         </Card>
@@ -200,7 +200,7 @@
 import React from 'react';
 import { Card, Button } from '../../../components/shared';
 import { Users, UserPlus, TrendingUp, AlertCircle, CheckCircle, Clock } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../../../config';
@@ -224,10 +224,6 @@ const AdminDashboard = () => {
     { label: 'Active Sessions', value: '12', status: 'good' },
   ];
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
   const fetchDashboardData = async () => {
     try {
       const statsRes = await axios.get(`${API_BASE_URL}/api/admin/dashboard-stats`);
@@ -240,6 +236,10 @@ const AdminDashboard = () => {
       console.error("Dashboard fetch error:", error);
     }
   };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
   const handleApprove = async (user) => {
     try {
       const res = await axios.put(
@@ -350,7 +350,7 @@ const AdminDashboard = () => {
 
           <div className="space-y-3">
             {pendingApprovals.map((item, index) => (
-              <motion.div
+              <Motion.div
                 key={item.id}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -388,7 +388,7 @@ const AdminDashboard = () => {
                     Reject
                   </Button>
                 </div>
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
 
@@ -406,7 +406,7 @@ const AdminDashboard = () => {
           <h2 className="text-2xl font-bold text-text mb-4">Recent Activity</h2>
           <div className="space-y-3">
             {recentActivity.map((activity, index) => (
-              <motion.div
+              <Motion.div
                 key={index}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -432,7 +432,7 @@ const AdminDashboard = () => {
                   <p className="text-sm text-text/60">{activity.user}</p>
                   <p className="text-xs text-text/50 mt-1">{activity.time}</p>
                 </div>
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
         </Card>
