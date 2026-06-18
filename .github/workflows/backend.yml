@@ -51,27 +51,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ── Resolve environment ──────────────────────────────────────────────
-      - name: Resolve environment
-        id: env
+      # ── Staging: check secrets then deploy ──────────────────────────────
+      - name: Check staging deploy secrets
+        id: staging_check
+        if: github.ref == 'refs/heads/develop'
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST_STAGING }}
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "name=production"                               >> $GITHUB_OUTPUT
-            echo "branch=main"                                   >> $GITHUB_OUTPUT
-            echo "ec2_host=${{ secrets.EC2_HOST_PRODUCTION }}"  >> $GITHUB_OUTPUT
-            echo "ec2_user=${{ secrets.EC2_USER_PRODUCTION }}"  >> $GITHUB_OUTPUT
-            echo "ssh_key=EC2_SSH_KEY_PRODUCTION"               >> $GITHUB_OUTPUT
+          if [ -z "$EC2_HOST" ]; then
+            echo "::warning::EC2_HOST_STAGING not configured — skipping staging deploy"
+            echo "skip=true" >> $GITHUB_OUTPUT
           else
-            echo "name=staging"                                  >> $GITHUB_OUTPUT
-            echo "branch=develop"                               >> $GITHUB_OUTPUT
-            echo "ec2_host=${{ secrets.EC2_HOST_STAGING }}"     >> $GITHUB_OUTPUT
-            echo "ec2_user=${{ secrets.EC2_USER_STAGING }}"     >> $GITHUB_OUTPUT
-            echo "ssh_key=EC2_SSH_KEY_STAGING"                  >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      # ── SSH deploy (staging) ─────────────────────────────────────────────
       - name: Deploy to staging EC2
-        if: github.ref == 'refs/heads/develop'
+        if: github.ref == 'refs/heads/develop' && steps.staging_check.outputs.skip != 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST_STAGING }}
@@ -80,23 +75,32 @@ jobs:
           script: |
             set -e
 
-            # Pull latest code
             cd /opt/mimiplay
             git fetch origin
             git reset --hard origin/develop
 
-            # Rebuild and restart all services
             cd backend
             docker compose up -d --build --remove-orphans
-
-            # Remove dangling images to free disk space
             docker image prune -f
 
             echo "Staging deploy complete: $(date)"
 
-      # ── SSH deploy (production) ──────────────────────────────────────────
-      - name: Deploy to production EC2
+      # ── Production: check secrets then deploy ───────────────────────────
+      - name: Check production deploy secrets
+        id: production_check
         if: github.ref == 'refs/heads/main'
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST_PRODUCTION }}
+        run: |
+          if [ -z "$EC2_HOST" ]; then
+            echo "::warning::EC2_HOST_PRODUCTION not configured — skipping production deploy"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to production EC2
+        if: github.ref == 'refs/heads/main' && steps.production_check.outputs.skip != 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST_PRODUCTION }}
@@ -105,16 +109,12 @@ jobs:
           script: |
             set -e
 
-            # Pull latest code
             cd /opt/mimiplay
             git fetch origin
             git reset --hard origin/main
 
-            # Rebuild and restart all services
             cd backend
             docker compose up -d --build --remove-orphans
-
-            # Remove dangling images to free disk space
             docker image prune -f
 
             echo "Production deploy complete: $(date)"

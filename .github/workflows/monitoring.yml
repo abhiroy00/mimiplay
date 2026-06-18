@@ -46,13 +46,21 @@ jobs:
             cd /opt/mimiplay
             git fetch origin && git reset --hard origin/develop
 
-            # Hot-reload Prometheus config (no restart needed)
-            curl -s -X POST http://localhost:9090/-/reload
-            echo "Prometheus config reloaded"
+            # Hot-reload Prometheus only if container is running
+            if docker compose -f backend/docker-compose.yml ps --status running 2>/dev/null | grep -q "mimi-prometheus"; then
+              curl -s -X POST http://localhost:9090/-/reload
+              echo "Prometheus config reloaded"
+            else
+              echo "Prometheus not running — config will apply on next stack start"
+            fi
 
-            # Restart Grafana to pick up provisioning changes
-            docker compose -f backend/docker-compose.yml restart mimi-grafana
-            echo "Grafana restarted"
+            # Restart Grafana only if container is running
+            if docker compose -f backend/docker-compose.yml ps --status running 2>/dev/null | grep -q "mimi-grafana"; then
+              docker compose -f backend/docker-compose.yml restart mimi-grafana
+              echo "Grafana restarted"
+            else
+              echo "Grafana not running — config will apply on next stack start"
+            fi
 
       # ── Production ──────────────────────────────────────────────────────
       - name: Reload monitoring on production EC2
@@ -69,8 +77,18 @@ jobs:
             cd /opt/mimiplay
             git fetch origin && git reset --hard origin/main
 
-            curl -s -X POST http://localhost:9090/-/reload
-            echo "Prometheus config reloaded"
+            # Hot-reload Prometheus only if container is running
+            if docker compose -f backend/docker-compose.yml ps --status running 2>/dev/null | grep -q "mimi-prometheus"; then
+              curl -s -X POST http://localhost:9090/-/reload
+              echo "Prometheus config reloaded"
+            else
+              echo "Prometheus not running — config will apply on next stack start"
+            fi
 
-            docker compose -f backend/docker-compose.yml restart mimi-grafana
-            echo "Grafana restarted"
+            # Restart Grafana only if container is running
+            if docker compose -f backend/docker-compose.yml ps --status running 2>/dev/null | grep -q "mimi-grafana"; then
+              docker compose -f backend/docker-compose.yml restart mimi-grafana
+              echo "Grafana restarted"
+            else
+              echo "Grafana not running — config will apply on next stack start"
+            fi

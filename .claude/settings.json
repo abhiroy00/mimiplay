@@ -6,7 +6,10 @@
       "Bash(docker exec *)",
       "Bash(docker version *)",
       "Bash(docker context *)",
-      "Bash(docker info *)"
+      "Bash(docker info *)",
+      "Bash(git -C \"d:\\\\DATA -B       EXAM -STUDY\\\\INNOVATIVE_AI\\\\mimiplay\" diff --stat HEAD)",
+      "Bash(git -C \"d:\\\\DATA -B       EXAM -STUDY\\\\INNOVATIVE_AI\\\\mimiplay\" add frontend/eslint.config.js frontend/src)",
+      "Bash(git -C 'd:\\\\DATA -B       EXAM -STUDY\\\\INNOVATIVE_AI\\\\mimiplay' commit -m ' *)"
     ]
   }
 }
