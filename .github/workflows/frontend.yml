@@ -68,26 +68,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check AWS secrets
+        id: aws_check
+        env:
+          AWS_KEY:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET:  ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION_VAL: ${{ secrets.AWS_REGION }}
+          AMPLIFY_ID:  ${{ secrets.AMPLIFY_APP_ID }}
+        run: |
+          if [ -z "$AWS_KEY" ] || [ -z "$AWS_SECRET" ] || [ -z "$AWS_REGION_VAL" ] || [ -z "$AMPLIFY_ID" ]; then
+            echo "::warning::AWS secrets not fully configured — skipping Amplify deploy"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS credentials
+        if: steps.aws_check.outputs.skip != 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region:            ${{ secrets.AWS_REGION }}
 
       - name: Resolve Amplify branch
         id: branch
+        if: steps.aws_check.outputs.skip != 'true'
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "name=main" >> $GITHUB_OUTPUT
-            echo "env=production" >> $GITHUB_OUTPUT
+            echo "name=main"        >> $GITHUB_OUTPUT
+            echo "env=production"   >> $GITHUB_OUTPUT
           else
-            echo "name=develop" >> $GITHUB_OUTPUT
-            echo "env=staging" >> $GITHUB_OUTPUT
+            echo "name=develop"     >> $GITHUB_OUTPUT
+            echo "env=staging"      >> $GITHUB_OUTPUT
           fi
 
       - name: Trigger Amplify job
         id: trigger
+        if: steps.aws_check.outputs.skip != 'true'
         run: |
           JOB_ID=$(aws amplify start-job \
             --app-id "${{ secrets.AMPLIFY_APP_ID }}" \
@@ -101,6 +119,7 @@ jobs:
           echo "Triggered Amplify job: $JOB_ID"
 
       - name: Wait for Amplify deployment
+        if: steps.aws_check.outputs.skip != 'true'
         run: |
           JOB_ID="${{ steps.trigger.outputs.job_id }}"
           BRANCH="${{ steps.branch.outputs.name }}"
