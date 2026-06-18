@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Home, Users, BarChart, CheckSquare, BookOpen, Settings, LogOut } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 // Teacher Pages
 import TeacherHome from '../../components/teacher/dashboard/TeacherHome';
@@ -91,7 +91,7 @@ const TeacherDashboard = () => {
             const active = isActive(tab.path);
             
             return (
-              <motion.button
+              <Motion.button
                 key={tab.path}
                 onClick={() => handleTabClick(tab)}
                 whileHover={{ scale: 1.05, y: -2 }}
@@ -105,7 +105,7 @@ const TeacherDashboard = () => {
               >
                 <Icon size={20} />
                 <span>{tab.label}</span>
-              </motion.button>
+              </Motion.button>
             );
           })}
         </div>
@@ -113,7 +113,7 @@ const TeacherDashboard = () => {
 
       {/* Main Content - Full Width */}
       <div className="px-8 py-8">
-        <motion.div
+        <Motion.div
           key={location.pathname}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -129,7 +129,7 @@ const TeacherDashboard = () => {
             <Route path="activities" element={<ActivitiesTab />} />
             <Route path="settings" element={<SettingsTab />} />
           </Routes>
-        </motion.div>
+        </Motion.div>
       </div>
     </div>
   );

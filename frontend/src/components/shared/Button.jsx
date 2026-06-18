@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
 const Button = ({ 
@@ -38,7 +38,7 @@ const Button = ({
   const sizeClass = sizes[size] || sizes.md;
   
   return (
-    <motion.button
+    <Motion.button
       type={type}
       className={`${baseStyles} ${variantClass} ${sizeClass} ${className}`}
       onClick={onClick}
@@ -51,7 +51,7 @@ const Button = ({
       {!loading && Icon && iconPosition === 'left' && <Icon size={20} />}
       {children}
       {!loading && Icon && iconPosition === 'right' && <Icon size={20} />}
-    </motion.button>
+    </Motion.button>
   );
 };
 

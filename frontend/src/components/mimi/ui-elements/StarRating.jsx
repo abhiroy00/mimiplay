@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { Star } from 'lucide-react';
 
 const StarRating = ({ rating = 5, maxStars = 5, size = 'md', showNumber = true, animated = true }) => {
@@ -18,7 +18,7 @@ const StarRating = ({ rating = 5, maxStars = 5, size = 'md', showNumber = true, 
       {/* Stars */}
       <div className="flex gap-2">
         {Array.from({ length: maxStars }, (_, index) => (
-          <motion.div
+          <Motion.div
             key={index}
             initial={animated ? { scale: 0, rotate: -180 } : {}}
             animate={animated ? { scale: 1, rotate: 0 } : {}}
@@ -37,20 +37,20 @@ const StarRating = ({ rating = 5, maxStars = 5, size = 'md', showNumber = true, 
                 }
               `}
             />
-          </motion.div>
+          </Motion.div>
         ))}
       </div>
       
       {/* Rating number */}
       {showNumber && (
-        <motion.div
+        <Motion.div
           initial={animated ? { opacity: 0, y: 10 } : {}}
           animate={animated ? { opacity: 1, y: 0 } : {}}
           transition={{ delay: 0.6 }}
           className="text-3xl font-bold text-text"
         >
           {rating}/{maxStars}
-        </motion.div>
+        </Motion.div>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const MimiCharacter = ({ 
   expression = 'happy',
@@ -85,7 +85,7 @@ const MimiCharacter = ({
   const sizeClass = sizes[size] || sizes.large;
   
   return (
-    <motion.div
+    <Motion.div
       className={`absolute ${positionClass} ${sizeClass} ${className}`}
       animate={animations[animation]}
       style={{ zIndex: 20 }}
@@ -100,7 +100,7 @@ const MimiCharacter = ({
         
         {/* Expression overlay effects */}
         {expression === 'excited' && (
-          <motion.div
+          <Motion.div
             className="absolute -top-10 -right-10 text-6xl"
             animate={{
               scale: [0, 1.2, 1],
@@ -113,30 +113,30 @@ const MimiCharacter = ({
             }}
           >
             ⭐
-          </motion.div>
+          </Motion.div>
         )}
         
         {expression === 'celebrating' && (
           <>
-            <motion.div
+            <Motion.div
               className="absolute -top-5 left-1/4 text-5xl"
               animate={{ y: [-20, 20], opacity: [1, 0] }}
               transition={{ duration: 1, repeat: Infinity }}
             >
               🎉
-            </motion.div>
-            <motion.div
+            </Motion.div>
+            <Motion.div
               className="absolute -top-5 right-1/4 text-5xl"
               animate={{ y: [-20, 20], opacity: [1, 0] }}
               transition={{ duration: 1, repeat: Infinity, delay: 0.3 }}
             >
               ✨
-            </motion.div>
+            </Motion.div>
           </>
         )}
         
         {expression === 'thinking' && (
-          <motion.div
+          <Motion.div
             className="absolute -top-10 right-10 text-5xl"
             animate={{
               y: [0, -10, 0],
@@ -148,11 +148,11 @@ const MimiCharacter = ({
             }}
           >
             💭
-          </motion.div>
+          </Motion.div>
         )}
         
         {expression === 'sad' && (
-          <motion.div
+          <Motion.div
             className="absolute top-1/3 left-1/2 -translate-x-1/2 text-4xl"
             animate={{
               y: [0, 10],
@@ -164,12 +164,12 @@ const MimiCharacter = ({
             }}
           >
             💧
-          </motion.div>
+          </Motion.div>
         )}
       </div>
       
       {/* Character shadow - REMOVED for full screen */}
-    </motion.div>
+    </Motion.div>
   );
 };
 

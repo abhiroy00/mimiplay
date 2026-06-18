@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../../config';
 import { Button, Card, Modal } from '../../../components/shared';
 import { Calendar, Download, CheckCircle, XCircle, Clock, MessageSquare, RefreshCw } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const AttendanceTab = () => {
 
@@ -106,7 +106,7 @@ const AttendanceTab = () => {
       await fetchAttendance(selectedDate);
       setSaveMsg('✅ All students marked present!');
       setTimeout(() => setSaveMsg(''), 3000);
-    } catch (err) {
+    } catch {
       setSaveMsg('❌ Some updates failed');
       setTimeout(() => setSaveMsg(''), 3000);
     }
@@ -167,7 +167,7 @@ const AttendanceTab = () => {
 
       {/* Save message */}
       {saveMsg && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+        <Motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
           className={`px-4 py-3 rounded-xl border-2 font-semibold ${
             saveMsg.startsWith('✅')
               ? 'bg-green-50 border-green-300 text-green-800'
@@ -176,7 +176,7 @@ const AttendanceTab = () => {
               : 'bg-blue-50 border-blue-300 text-blue-800'
           }`}>
           {saveMsg}
-        </motion.div>
+        </Motion.div>
       )}
 
       {/* Date Selector */}
@@ -269,7 +269,7 @@ const AttendanceTab = () => {
               </thead>
               <tbody>
                 {attendanceData.map((student, index) => (
-                  <motion.tr key={student.id}
+                  <Motion.tr key={student.id}
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.04 }}
                     className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
@@ -312,7 +312,7 @@ const AttendanceTab = () => {
                         </button>
                       </div>
                     </td>
-                  </motion.tr>
+                  </Motion.tr>
                 ))}
               </tbody>
             </table>

@@ -1,7 +1,7 @@
 // import React from 'react';
 // import { Card } from '../../../components/shared';
 // import { TrendingUp, CheckCircle, Clock, Lock } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // const ProgressTab = () => {
 //   const learningJourney = {
@@ -57,14 +57,14 @@
 //             <span>{learningJourney.starsNeeded} stars needed</span>
 //           </div>
 //           <div className="w-full bg-white/30 rounded-full h-4 overflow-hidden">
-//             <motion.div
+//             <Motion.div
 //               initial={{ width: 0 }}
 //               animate={{ width: `${learningJourney.progress}%` }}
 //               transition={{ duration: 1, delay: 0.5 }}
 //               className="h-full bg-white rounded-full flex items-center justify-end pr-2"
 //             >
 //               <span className="text-xs font-bold text-purple-600">{learningJourney.progress}%</span>
-//             </motion.div>
+//             </Motion.div>
 //           </div>
 //         </div>
         
@@ -78,7 +78,7 @@
 //         <h2 className="text-2xl font-bold text-text mb-4">Skills Mastered</h2>
 //         <div className="space-y-4">
 //           {skills.map((skill, index) => (
-//             <motion.div
+//             <Motion.div
 //               key={skill.name}
 //               initial={{ opacity: 0, x: -20 }}
 //               animate={{ opacity: 1, x: 0 }}
@@ -99,7 +99,7 @@
 //               </div>
               
 //               <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-//                 <motion.div
+//                 <Motion.div
 //                   initial={{ width: 0 }}
 //                   animate={{ width: `${skill.progress}%` }}
 //                   transition={{ duration: 0.8, delay: index * 0.1 + 0.3 }}
@@ -110,7 +110,7 @@
 //                   }`}
 //                 />
 //               </div>
-//             </motion.div>
+//             </Motion.div>
 //           ))}
 //         </div>
 //       </Card>
@@ -121,7 +121,7 @@
 //         <div className="flex items-end justify-between gap-4 h-64">
 //           {weeklyData.map((day, index) => (
 //             <div key={day.day} className="flex-1 flex flex-col items-center gap-2">
-//               <motion.div
+//               <Motion.div
 //                 initial={{ height: 0 }}
 //                 animate={{ height: `${(day.activities / maxActivities) * 100}%` }}
 //                 transition={{ duration: 0.5, delay: index * 0.1 }}
@@ -130,7 +130,7 @@
 //                 <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-sm font-bold text-text">
 //                   {day.activities}
 //                 </span>
-//               </motion.div>
+//               </Motion.div>
 //               <span className="text-sm font-semibold text-text">{day.day}</span>
 //             </div>
 //           ))}
@@ -168,12 +168,12 @@
 // export default ProgressTab;
 
 // src/components/parent/progress/ProgressTab.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../../../config';
 import { Card } from '../../../components/shared';
 import { CheckCircle, Lock } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const LEVELS = [
   { name: 'Little Star',  min: 0,   max: 49,        emoji: '⭐' },
@@ -317,7 +317,7 @@ const ProgressTab = ({ selectedChild }) => {
           <span>{nextLevel ? `${nextLevel.min - totalStars} more to unlock` : 'Legend!'}</span>
         </div>
         <div className="w-full bg-white/30 rounded-full h-4">
-          <motion.div
+          <Motion.div
             initial={{ width: 0 }}
             animate={{ width: `${progress}%` }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
@@ -329,13 +329,13 @@ const ProgressTab = ({ selectedChild }) => {
 
       {/* Total Stars */}
       <Card className="text-center py-6">
-        <motion.div key={totalStars} initial={{ scale: 0.8 }} animate={{ scale: 1 }}
+        <Motion.div key={totalStars} initial={{ scale: 0.8 }} animate={{ scale: 1 }}
           transition={{ type: 'spring' }}>
           <div className="text-6xl mb-2">⭐</div>
           <p className="text-6xl font-bold text-yellow-500">{totalStars}</p>
           <p className="text-text/60 text-lg mt-1">Total Stars Earned</p>
           <p className="text-text/40 text-sm">{results.length} activities completed</p>
-        </motion.div>
+        </Motion.div>
       </Card>
 
       {/* Skills Progress */}
@@ -343,7 +343,7 @@ const ProgressTab = ({ selectedChild }) => {
         <h2 className="text-2xl font-bold text-text mb-4">Skills Progress</h2>
         <div className="space-y-4">
           {skills.map((skill, i) => (
-            <motion.div key={skill.name}
+            <Motion.div key={skill.name}
               initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.07 }}
               className={`p-4 rounded-2xl border-2 ${
@@ -368,7 +368,7 @@ const ProgressTab = ({ selectedChild }) => {
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
-                <motion.div
+                <Motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${skill.progress}%` }}
                   transition={{ duration: 0.6, delay: i * 0.07 }}
@@ -377,7 +377,7 @@ const ProgressTab = ({ selectedChild }) => {
                   }`}
                 />
               </div>
-            </motion.div>
+            </Motion.div>
           ))}
         </div>
       </Card>
@@ -388,7 +388,7 @@ const ProgressTab = ({ selectedChild }) => {
         <div className="flex items-end justify-between gap-4 h-48">
           {weeklyData.map((day, i) => (
             <div key={day.day} className="flex-1 flex flex-col items-center gap-2">
-              <motion.div
+              <Motion.div
                 initial={{ height: 0 }}
                 animate={{ height: `${(day.activities / maxAct) * 100}%` }}
                 transition={{ duration: 0.5, delay: i * 0.07 }}
@@ -399,7 +399,7 @@ const ProgressTab = ({ selectedChild }) => {
                     {day.activities}
                   </span>
                 )}
-              </motion.div>
+              </Motion.div>
               <span className="text-xs font-semibold text-text">{day.day}</span>
             </div>
           ))}

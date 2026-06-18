@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const ComparisonChart = ({ title, data }) => {
   const maxValue = Math.max(...data.map(d => d.value));
@@ -21,7 +21,7 @@ const ComparisonChart = ({ title, data }) => {
           const colorClass = colors[index % colors.length];
 
           return (
-            <motion.div
+            <Motion.div
               key={index}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -32,14 +32,14 @@ const ComparisonChart = ({ title, data }) => {
                 <span className="text-primary-600 font-bold">{item.value}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                <motion.div
+                <Motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${percentage}%` }}
                   transition={{ delay: 0.2 + index * 0.1, duration: 0.8 }}
                   className={`h-full bg-gradient-to-r ${colorClass} rounded-full`}
                 />
               </div>
-            </motion.div>
+            </Motion.div>
           );
         })}
       </div>

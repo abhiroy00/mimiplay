@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../../config';
 import { Button, Card, Input } from '../../shared';
 import { Save, User, Mail, Phone, Lock, Bell, Palette } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const SettingsTab = () => {
 
@@ -26,6 +26,7 @@ const SettingsTab = () => {
   const parentId = localStorage.getItem('userId') || localStorage.getItem('user_id');
 
   // ── Profile fetch karo ──────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!parentId) return;
     fetchProfile();
@@ -117,13 +118,13 @@ const SettingsTab = () => {
 
       {/* Save Status */}
       {saveStatus && (
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-green-100 text-green-800 px-4 py-3 rounded-xl border-2 border-green-300 font-semibold"
         >
           {saveStatus}
-        </motion.div>
+        </Motion.div>
       )}
 
       {/* Profile Settings */}

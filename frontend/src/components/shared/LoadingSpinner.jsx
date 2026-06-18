@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
 const LoadingSpinner = ({ size = 'md', text, fullScreen = false }) => {
@@ -15,12 +15,12 @@ const LoadingSpinner = ({ size = 'md', text, fullScreen = false }) => {
   
   const content = (
     <div className="flex flex-col items-center justify-center gap-4">
-      <motion.div
+      <Motion.div
         animate={{ rotate: 360 }}
         transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
       >
         <Loader2 size={spinnerSize} className="text-primary-500" />
-      </motion.div>
+      </Motion.div>
       {text && (
         <p className="text-text font-medium">{text}</p>
       )}

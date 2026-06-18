@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const FloatingElements = ({ density = 'normal' }) => {
   
@@ -24,7 +24,7 @@ const FloatingElements = ({ density = 'normal' }) => {
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
       {elements.map((el) => (
-        <motion.div
+        <Motion.div
           key={el.id}
           className="absolute"
           style={{
@@ -54,7 +54,7 @@ const FloatingElements = ({ density = 'normal' }) => {
           {el.shape === 'cloud' && (
             <div className="w-full h-full text-primary-200 opacity-20 text-4xl">☁️</div>
           )}
-        </motion.div>
+        </Motion.div>
       ))}
     </div>
   );

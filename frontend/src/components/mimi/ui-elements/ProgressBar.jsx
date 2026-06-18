@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const ProgressBar = ({ 
   current = 1, 
@@ -32,7 +32,7 @@ const ProgressBar = ({
       )}
       
       <div className={`w-full bg-gray-200 rounded-full overflow-hidden ${sizeClass}`}>
-        <motion.div
+        <Motion.div
           className="h-full bg-gradient-to-r from-primary-400 to-secondary-400 rounded-full"
           initial={{ width: 0 }}
           animate={{ width: `${percentage}%` }}

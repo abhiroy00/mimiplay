@@ -123,6 +123,7 @@ export function StarProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useStars() {
   const ctx = useContext(StarContext);
   if (!ctx) throw new Error('useStars must be used inside <StarProvider>');

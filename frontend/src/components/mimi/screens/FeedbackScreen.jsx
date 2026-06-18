@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import MimiCharacter from '../MimiCharacter';
 import MimiDialogue from '../MimiDialogue';
 import { StarRating, ConfettiAnimation } from '../ui-elements';
@@ -51,18 +51,18 @@ const FeedbackScreen = ({
       </div>
       
       {/* Stars */}
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0, scale: 0 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.5, type: "spring" }}
         className="absolute bottom-[20%] left-1/2 -translate-x-1/2"
       >
         <StarRating rating={stars} size="xl" animated={true} />
-      </motion.div>
+      </Motion.div>
       
       {/* Success message */}
       {isCorrect && (
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1 }}
@@ -71,12 +71,12 @@ const FeedbackScreen = ({
           <p className="text-4xl font-bold text-gradient">
             Keep it up! 🎉
           </p>
-        </motion.div>
+        </Motion.div>
       )}
       
       {/* Try again message */}
       {!isCorrect && (
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1 }}
@@ -85,14 +85,14 @@ const FeedbackScreen = ({
           <p className="text-3xl font-semibold text-text">
             Let's try again together! 💪
           </p>
-        </motion.div>
+        </Motion.div>
       )}
       
       {/* Floating emojis for correct answers */}
       {isCorrect && (
         <>
           {['🎉', '⭐', '🌟', '✨', '💫'].map((emoji, i) => (
-            <motion.div
+            <Motion.div
               key={i}
               className="absolute text-6xl"
               style={{
@@ -112,7 +112,7 @@ const FeedbackScreen = ({
               }}
             >
               {emoji}
-            </motion.div>
+            </Motion.div>
           ))}
         </>
       )}

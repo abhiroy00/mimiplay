@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { MessageCircle, PlayCircle } from 'lucide-react';
 
 const TeacherSelection = () => {
@@ -28,17 +28,17 @@ const TeacherSelection = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 flex items-center justify-center p-6">
       <div className="max-w-4xl w-full">
-        <motion.h1
+        <Motion.h1
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-4xl font-bold text-center text-gray-800 mb-12"
         >
           What would you like to do today? ✨
-        </motion.h1>
+        </Motion.h1>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {options.map((opt, idx) => (
-            <motion.div
+            <Motion.div
               key={idx}
               whileHover={{ scale: 1.05, translateY: -10 }}
               whileTap={{ scale: 0.95 }}
@@ -53,19 +53,19 @@ const TeacherSelection = () => {
               </div>
               <h2 className="text-3xl font-bold mb-2">{opt.title}</h2>
               <p className="text-white/80 text-lg">{opt.desc}</p>
-            </motion.div>
+            </Motion.div>
           ))}
         </div>
         {/* Back to Portal */}
         <div className="flex justify-center mt-10">
-          <motion.button
+          <Motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
             onClick={() => navigate('/teacher/home')}
             className="text-gray-400 hover:text-gray-600 text-sm font-semibold transition-colors">
             ← Go to Teacher Portal
-          </motion.button>
+          </Motion.button>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
 const Toast = ({ toast, onRemove }) => {
@@ -18,7 +18,7 @@ const Toast = ({ toast, onRemove }) => {
   };
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, x: 100, y: -10 }}
       animate={{ opacity: 1, x: 0, y: 0 }}
       exit={{ opacity: 0, x: 100 }}
@@ -32,7 +32,7 @@ const Toast = ({ toast, onRemove }) => {
       >
         <X size={18} />
       </button>
-    </motion.div>
+    </Motion.div>
   );
 };
 

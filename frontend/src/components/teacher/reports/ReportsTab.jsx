@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Card } from '../../../components/shared';
 import { Download, TrendingUp, TrendingDown, BarChart3, Mail } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const ReportsTab = () => {
   const [dateRange, setDateRange] = useState({
@@ -157,7 +157,7 @@ const ReportsTab = () => {
           <h2 className="text-xl font-bold text-text mb-4">Weekly Progress</h2>
           <div className="space-y-3">
             {weeklyProgress.map((day, index) => (
-              <motion.div
+              <Motion.div
                 key={day.day}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -168,7 +168,7 @@ const ReportsTab = () => {
                   <span className="text-sm text-text/60">{day.activities} activities · {day.avgScore}/5 ⭐</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                  <motion.div
+                  <Motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${(day.avgScore / 5) * 100}%` }}
                     transition={{ delay: index * 0.1 + 0.2, duration: 0.5 }}
@@ -179,7 +179,7 @@ const ReportsTab = () => {
                     }`}
                   />
                 </div>
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
         </Card>
@@ -189,7 +189,7 @@ const ReportsTab = () => {
           <h2 className="text-xl font-bold text-text mb-4">Activity Breakdown</h2>
           <div className="space-y-4">
             {activityBreakdown.map((item, index) => (
-              <motion.div
+              <Motion.div
                 key={item.activity}
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -205,14 +205,14 @@ const ReportsTab = () => {
                   <span>{item.percentage}% success rate</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
-                  <motion.div
+                  <Motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${item.percentage}%` }}
                     transition={{ delay: index * 0.1 + 0.2, duration: 0.5 }}
                     className="h-full bg-gradient-to-r from-primary-400 to-secondary-400 rounded-full"
                   />
                 </div>
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
         </Card>

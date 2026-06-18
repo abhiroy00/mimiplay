@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Button, Input, FileUpload } from '../../shared';
 import { Save, X } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const StudentEditModal = ({ isOpen, onClose, student, onSave }) => {
   const [formData, setFormData] = useState({

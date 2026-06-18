@@ -1,7 +1,7 @@
 // import React, { useState, useRef, useEffect } from 'react';
 // import { createPortal } from 'react-dom';
 // import { ChevronDown, User } from 'lucide-react';
-// import { motion, AnimatePresence } from 'framer-motion';
+// import { motion as Motion, AnimatePresence } from 'framer-motion';
 
 // const ParentChildSelector = ({ selectedChild, onSelectChild }) => {
 //   const [isOpen, setIsOpen] = useState(false);
@@ -44,7 +44,7 @@
 //   const dropdownContent = (
 //     <AnimatePresence>
 //       {isOpen && (
-//         <motion.div
+//         <Motion.div
 //           initial={{ opacity: 0, y: -10 }}
 //           animate={{ opacity: 1, y: 0 }}
 //           exit={{ opacity: 0, y: -10 }}
@@ -57,7 +57,7 @@
 //           className="bg-white rounded-xl shadow-2xl border-2 border-gray-200 w-64"
 //         >
 //           {children.map((child) => (
-//             <motion.button
+//             <Motion.button
 //               key={child.id}
 //               onClick={() => {
 //                 onSelectChild(child.id);
@@ -77,9 +77,9 @@
 //               {selected.id === child.id && (
 //                 <div className="w-2 h-2 bg-primary-600 rounded-full flex-shrink-0" />
 //               )}
-//             </motion.button>
+//             </Motion.button>
 //           ))}
-//         </motion.div>
+//         </Motion.div>
 //       )}
 //     </AnimatePresence>
 //   );
@@ -120,7 +120,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, User, Loader2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL } from '../../config';
 
 const ParentChildSelector = ({ selectedChild, onSelectChild }) => {
@@ -208,7 +208,7 @@ const ParentChildSelector = ({ selectedChild, onSelectChild }) => {
   const dropdownContent = (
     <AnimatePresence>
       {isOpen && (
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
@@ -221,7 +221,7 @@ const ParentChildSelector = ({ selectedChild, onSelectChild }) => {
           className="bg-white rounded-xl shadow-2xl border-2 border-gray-200 w-64"
         >
           {children.map((child) => (
-            <motion.button
+            <Motion.button
               key={child.id}
               onClick={() => {
                 onSelectChild(child);
@@ -240,9 +240,9 @@ const ParentChildSelector = ({ selectedChild, onSelectChild }) => {
               {selected.id === child.id && (
                 <div className="w-2 h-2 bg-primary-600 rounded-full flex-shrink-0" />
               )}
-            </motion.button>
+            </Motion.button>
           ))}
-        </motion.div>
+        </Motion.div>
       )}
     </AnimatePresence>
   );

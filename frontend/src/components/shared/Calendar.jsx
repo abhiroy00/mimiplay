@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const Calendar = ({ onDateSelect, highlightedDates = [] }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -89,7 +89,7 @@ const Calendar = ({ onDateSelect, highlightedDates = [] }) => {
             new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toDateString();
 
           return (
-            <motion.button
+            <Motion.button
               key={day}
               onClick={() => onDateSelect(dateStr)}
               whileHover={{ scale: 1.1 }}
@@ -102,7 +102,7 @@ const Calendar = ({ onDateSelect, highlightedDates = [] }) => {
               }`}
             >
               {day}
-            </motion.button>
+            </Motion.button>
           );
         })}
       </div>

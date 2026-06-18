@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'; // ← ADD THIS
 import { AuthLayout } from '../layouts';
 import { Button, Input } from '../components/shared';
 import { Mail, ArrowLeft, CheckCircle } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const ForgotPassword = () => {
   const navigate = useNavigate(); // ← ADD THIS
@@ -38,7 +38,7 @@ const ForgotPassword = () => {
     return (
       <AuthLayout>
         <div className="text-center py-8">
-          <motion.div
+          <Motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: "spring", duration: 0.6 }}
@@ -47,7 +47,7 @@ const ForgotPassword = () => {
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle size={48} className="text-green-600" />
             </div>
-          </motion.div>
+          </Motion.div>
           
           <h2 className="text-3xl font-bold text-text mb-3">
             Check Your Email! 📧

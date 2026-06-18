@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 
 const MimiDialogue = ({ 
   text, 
@@ -32,7 +32,7 @@ const MimiDialogue = ({
   return (
     <AnimatePresence>
       {isVisible && text && (
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, scale: 0.8, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.8, y: 20 }}
@@ -65,15 +65,15 @@ const MimiDialogue = ({
             )}
             
             {/* Text with typing animation */}
-            <motion.p
+            <Motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="text-2xl md:text-3xl font-semibold text-text text-center leading-relaxed"
             >
               {text}
-            </motion.p>
+            </Motion.p>
           </div>
-        </motion.div>
+        </Motion.div>
       )}
     </AnimatePresence>
   );

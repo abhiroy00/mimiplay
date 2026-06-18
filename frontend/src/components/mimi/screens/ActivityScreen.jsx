@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import MimiCharacter from '../MimiCharacter';
 import MimiDialogue from '../MimiDialogue';
 import { ListeningIndicator, ProgressBar } from '../ui-elements';
@@ -13,10 +13,9 @@ const ActivityScreen = ({
   },
   currentActivity = 1,
   totalActivities = 5,
-  isListening = false,
-  onResponse
+  isListening = false
 }) => {
-  const [mimiState, setMimiState] = useState({
+  const [mimiState, _setMimiState] = useState({
     expression: 'happy',
     animation: 'talking'
   });
@@ -56,7 +55,7 @@ const ActivityScreen = ({
         
         {/* Item Image */}
         {activityData.itemImage && (
-          <motion.div
+          <Motion.div
             initial={{ scale: 0, rotate: -180 }}
             animate={{ scale: 1, rotate: 0 }}
             transition={{ type: "spring", duration: 0.8 }}
@@ -70,31 +69,31 @@ const ActivityScreen = ({
                 e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="80" fill="%23ff6b9d"/><text x="100" y="120" font-size="80" text-anchor="middle" fill="white">🍎</text></svg>';
               }}
             />
-          </motion.div>
+          </Motion.div>
         )}
         
         {/* Letter Display */}
         {activityData.letter && (
-          <motion.div
+          <Motion.div
             initial={{ scale: 0, rotate: 180 }}
             animate={{ scale: 1, rotate: 0 }}
             transition={{ type: "spring", duration: 0.8, delay: 0.2 }}
             className="text-[180px] font-black bg-gradient-to-r from-primary-500 via-secondary-500 to-accent-500 bg-clip-text text-transparent"
           >
             {activityData.letter}
-          </motion.div>
+          </Motion.div>
         )}
         
         {/* Item Name */}
         {activityData.itemName && (
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
             className="text-6xl font-bold text-purple-600"
           >
             {activityData.itemName}
-          </motion.div>
+          </Motion.div>
         )}
       </div>
       
@@ -104,7 +103,7 @@ const ActivityScreen = ({
       </AnimatePresence>
       
       {/* Decorative sparkles */}
-      <motion.div
+      <Motion.div
         className="absolute top-[20%] right-[10%] text-6xl"
         animate={{ 
           rotate: 360,
@@ -116,7 +115,7 @@ const ActivityScreen = ({
         }}
       >
         ✨
-      </motion.div>
+      </Motion.div>
     </div>
   );
 };

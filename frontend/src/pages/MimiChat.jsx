@@ -1,6 +1,6 @@
 // import React, { useState, useEffect, useRef } from 'react'
 // import axios from 'axios'
-// import { motion, AnimatePresence } from 'framer-motion'
+// import { motion as Motion, AnimatePresence } from 'framer-motion'
 // import { API_ENDPOINTS } from '../config'
 
 // import bgImage from '../assets/images/mimi/bg.jpg'
@@ -107,15 +107,15 @@
 //   return (
 //     <div className="relative min-h-screen w-full bg-cover bg-center overflow-hidden" style={{ backgroundImage: `url(${bgImage})` }}>
 //       <div className="absolute top-8 right-8 z-50 flex items-center gap-2">
-//         <motion.button
+//         <Motion.button
 //           onClick={startSession}
 //           disabled={sessionState !== 'idle'}
 //           className={`px-6 py-3 rounded-full text-white bg-indigo-600`}
 //         >
 //           {sessionState === 'idle' ? 'Start Mimi Chat' : 'Session Running'}
-//         </motion.button>
+//         </Motion.button>
 
-//         <motion.button
+//         <Motion.button
 //           onClick={() => {
 //             // Demo response for preview
 //             setSessionState('running')
@@ -127,11 +127,11 @@
 //           className="px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-800 shadow-sm"
 //         >
 //           Demo Response
-//         </motion.button>
+//         </Motion.button>
 //       </div>
 
 //       {/* Mimi video (animates left when showing a response) */}
-//       <motion.div
+//       <Motion.div
 //         className="absolute bottom-0 z-50 w-[520px] h-[520px]"
 //         animate={mimiText ? { left: '12px', x: 0 } : { left: '50%', x: '-50%' }}
 //         transition={{ type: 'spring', stiffness: 120, damping: 18 }}
@@ -145,13 +145,13 @@
 //           playsInline
 //           className="w-full h-full object-contain"
 //         />
-//       </motion.div>
+//       </Motion.div>
 
 //       {/* White response box */}
 //       <div className="absolute top-32 left-[440px] z-40 w-[700px] pointer-events-none">
 //         <AnimatePresence>
 //           {(mimiText || imageUrl || ytVideo) && (
-//             <motion.div
+//             <Motion.div
 //               initial={{ opacity: 0, y: -20, scale: 0.98 }}
 //               animate={{ opacity: 1, y: 0, scale: 1 }}
 //               exit={{ opacity: 0, y: -10 }}
@@ -183,7 +183,7 @@
 //                   )}
 //                 </div>
 //               )}
-//             </motion.div>
+//             </Motion.div>
 //           )}
 //         </AnimatePresence>
 //       </div>
@@ -202,7 +202,7 @@
 // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import axios from 'axios'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion as Motion, AnimatePresence } from 'framer-motion'
 import { API_ENDPOINTS } from '../config'
 
 import bgImage          from '../assets/images/mimi/bg.jpg'
@@ -245,7 +245,7 @@ const MimiChat = () => {
 
   const [sessionState,  setSessionState]  = useState('idle')
   const [studentName,   setStudentName]   = useState('')
-  const [sessionId,     setSessionId]     = useState('')
+  const [_sessionId,    setSessionId]     = useState('')
   const [mimiText,      setMimiText]      = useState('')
   const [imageUrl,      setImageUrl]      = useState(null)
   const [ytVideo,       setYtVideo]       = useState(null)
@@ -254,7 +254,7 @@ const MimiChat = () => {
   const [isTyping,      setIsTyping]      = useState(false)
   const [isSpeaking,    setIsSpeaking]    = useState(false) // ← Mimi bol rahi hai?
   const [chatHistory,   setChatHistory]   = useState([])
-  const [lastQuestion,  setLastQuestion]  = useState('') // ← current question track
+  const [_lastQuestion, setLastQuestion]  = useState('') // ← current question track
 
   const videoRef        = useRef(null)
   const canvasRef       = useRef(null)
@@ -273,8 +273,8 @@ const MimiChat = () => {
   const lastAnswerRef    = useRef('')
   const lastActionRef    = useRef('')
   const chatHistoryRef   = useRef([])
-  const mediaRecorderRef = useRef(null)
-  const audioChunksRef   = useRef([])
+  const _mediaRecorderRef = useRef(null)
+  const _audioChunksRef   = useRef([])
   const sessionIdRef     = useRef('')
   const studentNameRef   = useRef('')
   const topicsListRef    = useRef([])   // mirrors topicsList state for use inside stable callbacks
@@ -287,7 +287,7 @@ const MimiChat = () => {
   const silenceTimerRef   = useRef(null)
   const isRecordingRef    = useRef(false)
   const isMimiSpeakingRef = useRef(false)
-  const speechStartRef    = useRef(0)
+  const _speechStartRef   = useRef(0)
   const currentAudioRef   = useRef(null)   // tracks playing Audio so wake-word can stop it
   const startVADRef            = useRef(null)   // stable ref to startVAD, breaks circular dep
   const stopSessionRef         = useRef(null)   // stable ref to stopSession for recognition handlers
@@ -329,6 +329,19 @@ const MimiChat = () => {
 
   // ── Face detection ───────────────────────────────────────────
   const startFaceDetection = useCallback(async () => {
+    // Unlock audio playback — must happen inside a real user-gesture handler.
+    // Chrome blocks audio.play() from async callbacks (setInterval, fetch, etc.)
+    // unless the tab has already been "unlocked" by a synchronous user click.
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const buf = ctx.createBuffer(1, 1, 22050)
+      const src = ctx.createBufferSource()
+      src.buffer = buf
+      src.connect(ctx.destination)
+      src.start(0)
+      ctx.close()
+    } catch {}
+
     setSessionState('detecting')
     setStudentName('')
     setMimiText('')
@@ -427,7 +440,7 @@ const MimiChat = () => {
 
     try {
       const url   = URL.createObjectURL(
-        new Blob([Uint8Array.from(atob(base64audio), c => c.charCodeAt(0))], { type: 'audio/mp3' })
+        new Blob([Uint8Array.from(atob(base64audio), c => c.charCodeAt(0))], { type: 'audio/mpeg' })
       )
       const audio = new Audio(url)
       currentAudioRef.current = audio
@@ -449,12 +462,21 @@ const MimiChat = () => {
         }
       }
 
-      audio.play().catch(() => {})
+      audio.play().catch((err) => {
+        console.error('[Mimi] Audio play() failed:', err.name, err.message)
+        _resume()
+      })
       audio.onended = _resume
-      audio.onerror = () => {
+      audio.onerror = (e) => {
+        console.error('[Mimi] Audio decode/load error:', e)
         clearInterval(vadIntervalRef.current)
         URL.revokeObjectURL(url)
         currentAudioRef.current = null
+        isMimiSpeakingRef.current = false
+        setIsSpeaking(false)
+        setVadStatus('listening')
+        if (onDone) onDone()
+        else if (sessionIdRef.current && startVADRef.current) startVADRef.current()
       }
     } catch {
       clearInterval(vadIntervalRef.current)
@@ -467,7 +489,7 @@ const MimiChat = () => {
   }, [])
 
   // ── Send speech blob → get Mimi's reply ───────────────────────
-  const sendAudioToMimi = useCallback(async (blob) => {
+  const _sendAudioToMimi = useCallback(async (blob) => {
     const sid  = sessionIdRef.current
     const name = studentNameRef.current
     if (!sid || !name || blob.size < 2000) {
@@ -981,23 +1003,23 @@ const MimiChat = () => {
           </div>
         )}
         {(sessionState === 'idle' || sessionState === 'stopped') && (
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+          <Motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             onClick={startFaceDetection}
             className="px-6 py-3 rounded-full text-white bg-indigo-600 font-bold shadow-lg">
             🎤 Start Mimi Chat
-          </motion.button>
+          </Motion.button>
         )}
         {sessionState === 'running' && topicsList.length > 0 && (
-          <motion.button
+          <Motion.button
             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             onClick={() => setShowTopics(v => !v)}
             className="px-4 py-2 rounded-full bg-amber-100 text-amber-700 font-bold shadow text-sm border border-amber-300">
             📚 Topics ({topicsList.length})
-          </motion.button>
+          </Motion.button>
         )}
         {sessionState === 'running' && (
           <>
-            <motion.div
+            <Motion.div
               animate={vadStatus === 'user_speaking' ? { scale: [1, 1.1, 1] } : {}}
               transition={{ repeat: Infinity, duration: 0.5 }}
               className={`px-5 py-2 rounded-full text-sm font-bold shadow-lg ${
@@ -1013,12 +1035,12 @@ const MimiChat = () => {
               {vadStatus === 'thinking'      && '⏳ Thinking...'}
               {vadStatus === 'mimi_speaking' && '🔊 Mimi Speaking...'}
               {vadStatus === 'idle'          && '⚪ Starting...'}
-            </motion.div>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            </Motion.div>
+            <Motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
               onClick={stopSession}
               className="px-6 py-3 rounded-full text-white bg-red-500 font-bold shadow-lg">
               ⏹ Stop
-            </motion.button>
+            </Motion.button>
           </>
         )}
         <div className={`px-4 py-2 rounded-full text-sm font-bold ${
@@ -1037,9 +1059,9 @@ const MimiChat = () => {
       {/* ── Face Detection Overlay ─────────────────────────────── */}
       <AnimatePresence>
         {sessionState === 'detecting' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+            <Motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
               className="bg-white rounded-[2.5rem] p-8 text-center shadow-2xl max-w-lg w-full mx-4 border-4 border-purple-100">
               
               <div className="relative w-full aspect-video bg-gray-100 rounded-3xl overflow-hidden mb-6 shadow-inner border-2 border-purple-50">
@@ -1063,7 +1085,7 @@ const MimiChat = () => {
               
               <div className="flex justify-center gap-3">
                 {[0, 1, 2].map(i => (
-                  <motion.div key={i}
+                  <Motion.div key={i}
                     animate={{ y: [0, -10, 0], opacity: [0.3, 1, 0.3] }}
                     transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
                     className="w-4 h-4 bg-purple-500 rounded-full shadow-sm" />
@@ -1116,8 +1138,8 @@ const MimiChat = () => {
               >
                 Cancel
               </button>
-            </motion.div>
-          </motion.div>
+            </Motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
@@ -1125,9 +1147,9 @@ const MimiChat = () => {
       {/* ── Session Stopped Screen ─────────────────────────────── */}
       <AnimatePresence>
         {sessionState === 'stopped' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/50">
-            <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }}
+            <Motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }}
               className="bg-white rounded-3xl px-12 py-10 text-center shadow-2xl max-w-md">
               <div className="text-7xl mb-4">✅</div>
               <h2 className="text-3xl font-black text-green-700 mb-2">Session Complete!</h2>
@@ -1150,8 +1172,8 @@ const MimiChat = () => {
                 className="px-8 py-3 bg-purple-600 text-white font-black rounded-2xl shadow-lg hover:bg-purple-700">
                 🔄 Start New Session
               </button>
-            </motion.div>
-          </motion.div>
+            </Motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
@@ -1172,7 +1194,7 @@ const MimiChat = () => {
           style={{ maxHeight: '90vh', overflowY: 'auto' }}>
           <AnimatePresence>
             {mimiText && sessionState === 'running' && (
-              <motion.div
+              <Motion.div
                 key={mimiText}
                 initial={{ opacity: 0, x: 40, scale: 0.98 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
@@ -1208,14 +1230,14 @@ const MimiChat = () => {
                     )}
                   </div>
                 )}
-              </motion.div>
+              </Motion.div>
             )}
           </AnimatePresence>
 
           {/* ── Topic Chips Panel ──────────────────────────────── */}
           <AnimatePresence>
             {showTopics && topicsList.length > 0 && sessionState === 'running' && (
-              <motion.div
+              <Motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}
@@ -1227,7 +1249,7 @@ const MimiChat = () => {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {topicsList.map((topic, i) => (
-                    <motion.button
+                    <Motion.button
                       key={i}
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
@@ -1237,11 +1259,11 @@ const MimiChat = () => {
                       }}
                       className="px-3 py-1.5 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 rounded-full text-sm font-bold shadow-sm border border-amber-200 hover:from-amber-200 hover:to-orange-200 transition-colors">
                       {topic}
-                    </motion.button>
+                    </Motion.button>
                   ))}
                 </div>
                 <p className="text-xs text-gray-400 mt-2">Tap any topic to explore it deeper!</p>
-              </motion.div>
+              </Motion.div>
             )}
           </AnimatePresence>
         </div>
@@ -1283,7 +1305,7 @@ export default MimiChat
 
 // import React, { useState, useEffect, useRef } from 'react'
 // import axios from 'axios'
-// import { motion, AnimatePresence } from 'framer-motion'
+// import { motion as Motion, AnimatePresence } from 'framer-motion'
 // import { API_ENDPOINTS } from '../config'
 
 // import bgImage from '../assets/images/mimi/bg.jpg'
@@ -1387,15 +1409,15 @@ export default MimiChat
 //     >
 //       {/* Buttons */}
 //       <div className="absolute top-4 right-4 sm:top-8 sm:right-8 z-50 flex flex-wrap gap-2">
-//         <motion.button
+//         <Motion.button
 //           onClick={startSession}
 //           disabled={sessionState !== 'idle'}
 //           className="px-4 sm:px-6 py-2 sm:py-3 rounded-full text-white bg-indigo-600 text-sm sm:text-base"
 //         >
 //           {sessionState === 'idle' ? 'Start Mimi Chat' : 'Session Running'}
-//         </motion.button>
+//         </Motion.button>
 
-//         <motion.button
+//         <Motion.button
 //           onClick={() => {
 //             setSessionState('running')
 //             setMimiText('The sun is big and bright. It gives us light and keeps us warm.')
@@ -1406,11 +1428,11 @@ export default MimiChat
 //           className="px-3 sm:px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-800 shadow-sm text-sm"
 //         >
 //           Demo Response
-//         </motion.button>
+//         </Motion.button>
 //       </div>
 
 //       {/* Mimi Character */}
-//       <motion.div
+//       <Motion.div
 //         className="absolute bottom-0 z-50 
 //         w-[220px] h-[220px]
 //         sm:w-[300px] sm:h-[300px]
@@ -1428,7 +1450,7 @@ export default MimiChat
 //           playsInline
 //           className="w-full h-full object-contain"
 //         />
-//       </motion.div>
+//       </Motion.div>
 
 //       {/* Response Box */}
 //       <div className="
@@ -1445,7 +1467,7 @@ export default MimiChat
 //       ">
 //         <AnimatePresence>
 //           {(mimiText || imageUrl || ytVideo) && (
-//             <motion.div
+//             <Motion.div
 //               initial={{ opacity: 0, y: -20, scale: 0.98 }}
 //               animate={{ opacity: 1, y: 0, scale: 1 }}
 //               exit={{ opacity: 0, y: -10 }}
@@ -1491,7 +1513,7 @@ export default MimiChat
 //                   )}
 //                 </div>
 //               )}
-//             </motion.div>
+//             </Motion.div>
 //           )}
 //         </AnimatePresence>
 //       </div>

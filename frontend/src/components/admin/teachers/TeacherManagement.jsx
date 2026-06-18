@@ -1,7 +1,7 @@
 // import React, { useState } from 'react';
 // import { Card, Button, Input, Modal, Avatar } from '../../../components/shared';
 // import { Search, Plus, CheckCircle, XCircle, Eye, Mail, Phone, Building2, User } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // const TeacherManagement = () => {
 //   const [searchQuery, setSearchQuery] = useState('');
@@ -192,7 +192,7 @@
 //               </tr>
 //             </thead>
 //             <tbody>
-//               {filteredTeachers.map((teacher, index) => (
+//               {filteredTeachers.map((teacher) => (
 //                 <tr
 //                   key={teacher.id}
 //                   className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
@@ -430,7 +430,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Modal, Avatar } from '../../../components/shared';
 import { Search, Plus, CheckCircle, XCircle, Eye, Mail, Phone, Building2, User } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { API_BASE_URL } from '../../../config';
 
 const TeacherManagement = () => {
@@ -680,7 +679,7 @@ const handleReject = async (teacher) => {
               </tr>
             </thead>
             <tbody>
-              {filteredTeachers.map((teacher, index) => (
+              {filteredTeachers.map((teacher) => (
                 <tr
                   key={teacher.id}
                   className="border-b border-gray-100 hover:bg-gray-50 transition-colors"

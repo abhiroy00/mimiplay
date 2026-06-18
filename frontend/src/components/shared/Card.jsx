@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const Card = ({ 
   children, 
@@ -24,7 +24,7 @@ const Card = ({
   const hoverClass = hover ? "hover:card-shadow-hover hover:scale-[1.02] cursor-pointer" : "";
   const paddingClass = paddings[padding] || paddings.md;
   
-  const CardComponent = onClick ? motion.div : 'div';
+  const CardComponent = onClick ? Motion.div : 'div';
   
   return (
     <CardComponent

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'; // ← ADD THIS
 import { AuthLayout } from '../layouts';
 import { Button, Input } from '../components/shared';
 import { User, Mail, Lock, Phone, Building2 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { API_BASE_URL } from '../config';
 
 const Register = () => {
@@ -250,13 +250,13 @@ const Register = () => {
             </span>
           </label>
           {errors.agreeToTerms && (
-            <motion.p
+            <Motion.p
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               className="text-red-500 text-sm mt-1"
             >
               {errors.agreeToTerms}
-            </motion.p>
+            </Motion.p>
           )}
         </div>
         

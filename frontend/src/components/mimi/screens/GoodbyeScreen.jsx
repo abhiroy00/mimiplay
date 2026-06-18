@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import MimiCharacter from '../MimiCharacter';
 import MimiDialogue from '../MimiDialogue';
 import { Star } from 'lucide-react';
@@ -38,7 +38,7 @@ const GoodbyeScreen = ({
       </div>
       
       {/* Stars Earned */}
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0, scale: 0 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.5, type: "spring" }}
@@ -48,7 +48,7 @@ const GoodbyeScreen = ({
           <p className="text-2xl text-text/70 mb-2">You earned</p>
           <div className="flex items-center justify-center gap-4 mb-2">
             {[...Array(5)].map((_, i) => (
-              <motion.div
+              <Motion.div
                 key={i}
                 initial={{ opacity: 0, scale: 0, rotate: -180 }}
                 animate={{ opacity: 1, scale: 1, rotate: 0 }}
@@ -58,15 +58,15 @@ const GoodbyeScreen = ({
                 }}
               >
                 <Star size={48} className="fill-yellow-400 text-yellow-400" />
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
           <p className="text-5xl font-bold text-gradient">{totalStars} Stars!</p>
         </div>
-      </motion.div>
+      </Motion.div>
       
       {/* See you message */}
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 1.5 }}
@@ -78,11 +78,11 @@ const GoodbyeScreen = ({
         <p className="text-2xl text-text/60">
           Keep being awesome!
         </p>
-      </motion.div>
+      </Motion.div>
       
       {/* Floating hearts */}
       {[...Array(8)].map((_, i) => (
-        <motion.div
+        <Motion.div
           key={i}
           className="absolute text-5xl"
           style={{
@@ -103,11 +103,11 @@ const GoodbyeScreen = ({
           }}
         >
           {i % 2 === 0 ? '💖' : '💝'}
-        </motion.div>
+        </Motion.div>
       ))}
       
       {/* Sun rising animation */}
-      <motion.div
+      <Motion.div
         className="absolute top-10 right-20 text-8xl"
         animate={{
           rotate: 360,
@@ -119,7 +119,7 @@ const GoodbyeScreen = ({
         }}
       >
         ☀️
-      </motion.div>
+      </Motion.div>
     </div>
   );
 };

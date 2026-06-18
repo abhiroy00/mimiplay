@@ -3,7 +3,7 @@
 // import { AuthLayout } from '../layouts';
 // import { Button, Input } from '../components/shared';
 // import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // // Test credentials for all account types
 // const TEST_ACCOUNTS = {
@@ -160,13 +160,13 @@
 //             </button>
 //           </div>
 //           {errors.password && (
-//             <motion.p
+//             <Motion.p
 //               initial={{ opacity: 0, y: -10 }}
 //               animate={{ opacity: 1, y: 0 }}
 //               className="text-red-500 text-sm mt-1"
 //             >
 //               {errors.password}
-//             </motion.p>
+//             </Motion.p>
 //           )}
 //         </div>
         
@@ -257,7 +257,7 @@ import { useNavigate } from 'react-router-dom';
 import { AuthLayout } from '../layouts';
 import { Button, Input } from '../components/shared';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { API_BASE_URL } from '../config';
 
 // Test credentials for all account types
@@ -454,13 +454,13 @@ const Login = () => {
             </button>
           </div>
           {errors.password && (
-            <motion.p
+            <Motion.p
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               className="text-red-500 text-sm mt-1"
             >
               {errors.password}
-            </motion.p>
+            </Motion.p>
           )}
         </div>
 

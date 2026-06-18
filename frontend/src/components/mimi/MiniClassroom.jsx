@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_ENDPOINTS } from '../../config';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import bgImage from '../../assets/images/mimi/bg.jpg'; 
 
 import mimiIdleVideo from '../../assets/images/mimi/mimiidell.mp4'
@@ -47,7 +47,7 @@ useEffect(() => {
           }
         }
         console.log("Current Backend Data:", res.data);
-      } catch (err) {
+      } catch {
         console.log("Error fetching status from backend");
       }
     }, 1000);
@@ -74,7 +74,7 @@ useEffect(() => {
           setLog(`Mimi is listening to ${res.data.person}...`);
         }
       }
-    } catch (err) {
+    } catch {
       console.log("Polling error");
     }
   }, 1000);
@@ -90,25 +90,10 @@ useEffect(() => {
     try {
       // Flask Backend Call to start camera thread
       await axios.get(API_ENDPOINTS.START_CLASSROOM);
-    } catch (err) {
+    } catch {
       setLog('Error: Flask server not responding');
       setStatus('idle');
     }
-  };
-
-  const getMimiImage = () => {
-    if (status === 'idle') return mimiMainImg;
-    if (status === 'waving' || (status === 'talking' && !mood)) return mimiWave;
-
-    if (mood) {
-      switch (mood.toLowerCase()) {
-        case 'happy': return mimiHappy;
-        case 'sad': return mimiSad;
-        case 'neutral': return mimiNeutral;
-        default: return mimiWave;
-      }
-    }
-    return mimiWave;
   };
 
   const getMimiVideo = () => {
@@ -134,7 +119,7 @@ useEffect(() => {
       {/* HI PERSON NAME - Senior's requirement */}
       <AnimatePresence>
         {personName && (
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
@@ -144,20 +129,20 @@ useEffect(() => {
               Hi {personName}! 👋
             </h2>
             {mood && mood !== "Unknown" && (
-              <motion.p
+              <Motion.p
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="text-sm font-bold text-purple-500 uppercase mt-1"
               >
                 You look {mood} today!
-              </motion.p>
+              </Motion.p>
             )}
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
 {/* Mimi Image Container */ }
-      <motion.div
+      <Motion.div
         key={mood || status}
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -172,7 +157,7 @@ useEffect(() => {
           playsInline
           className="w-full h-full object-contain rounded-xl"
         />
-      </motion.div>
+      </Motion.div>
 
       <div className="text-center">
         <p className="text-xl font-bold text-gray-500 mb-4 h-8">{log}</p>

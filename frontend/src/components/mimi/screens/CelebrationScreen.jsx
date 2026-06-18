@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import MimiCharacter from '../MimiCharacter';
 import MimiDialogue from '../MimiDialogue';
 import { ConfettiAnimation } from '../ui-elements';
@@ -41,68 +41,68 @@ const CelebrationScreen = ({
       />
       
       {/* Main celebration message */}
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0, scale: 0 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: "spring", duration: 0.8 }}
         className="absolute top-[15%] left-1/2 -translate-x-1/2 text-center"
       >
-        <motion.div
+        <Motion.div
           animate={{ rotate: [0, 10, -10, 10, 0] }}
           transition={{ duration: 0.5, delay: 0.5 }}
           className="text-9xl mb-4"
         >
           🏆
-        </motion.div>
+        </Motion.div>
         <h1 className="text-6xl font-bold text-gradient mb-4">
           Amazing Job, {studentName}!
         </h1>
         <p className="text-3xl text-text font-semibold">
           You're a superstar! 🌟
         </p>
-      </motion.div>
+      </Motion.div>
       
       {/* Stats Cards */}
       <div className="absolute top-[45%] left-1/2 -translate-x-1/2 flex gap-8">
         
         {/* Activities Completed */}
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
           className="bg-white rounded-3xl shadow-2xl p-8 text-center min-w-[200px]"
         >
-          <motion.div
+          <Motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 2, delay: 0.8 }}
           >
             <Award size={64} className="mx-auto mb-4 text-blue-500" />
-          </motion.div>
+          </Motion.div>
           <p className="text-5xl font-bold text-text mb-2">{activitiesCompleted}</p>
           <p className="text-lg text-text/70">Activities</p>
-        </motion.div>
+        </Motion.div>
         
         {/* Total Stars */}
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.7 }}
           className="bg-white rounded-3xl shadow-2xl p-8 text-center min-w-[200px]"
         >
-          <motion.div
+          <Motion.div
             animate={{ scale: [1, 1.2, 1] }}
             transition={{ duration: 1, repeat: Infinity, delay: 1 }}
           >
             <Star size={64} className="mx-auto mb-4 text-yellow-500 fill-yellow-500" />
-          </motion.div>
+          </Motion.div>
           <p className="text-5xl font-bold text-text mb-2">{totalStars}</p>
           <p className="text-lg text-text/70">Stars Earned</p>
-        </motion.div>
+        </Motion.div>
       </div>
       
       {/* Floating badges */}
       {[...Array(6)].map((_, i) => (
-        <motion.div
+        <Motion.div
           key={i}
           className="absolute text-6xl"
           style={{
@@ -124,7 +124,7 @@ const CelebrationScreen = ({
           }}
         >
           {['🎯', '💯', '🔥', '💪', '👏', '🎨'][i]}
-        </motion.div>
+        </Motion.div>
       ))}
     </div>
   );

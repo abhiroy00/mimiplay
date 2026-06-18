@@ -467,13 +467,13 @@ import axios from 'axios';
 import { Button, Card, Input, Modal, Avatar, FileUpload } from '../../../components/shared';
 import StudentEditModal from './StudentEditModal';
 import { Search, Plus, Edit2, Trash2, Eye, Mail, Phone, MessageSquare, Star } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { useStars } from '../../../context/StarContext';
 import { API_BASE_URL } from '../../../config';
 
 const StudentList = () => {
   // ── Star store — only used for Aarav Sharma (student-1) ────────────────────
-  const { getTotalStars, getTodayStars, getTodayActivities, getStudentResults } = useStars();
+  const { getTotalStars, getTodayStars, _getTodayActivities, getStudentResults } = useStars();
 
   // ── Student data (in production this would come from your backend/auth) ───
   const [students, setStudents] = useState([]);
@@ -576,8 +576,8 @@ const StudentList = () => {
 
   // Stars for Aarav Sharma only (student-1)
   const firstStudent = students[0];
-  const aaravStars = firstStudent ? getTotalStars(firstStudent.studentId) : 0;
-  const aaravTodayStars = firstStudent ? getTodayStars(firstStudent.studentId) : 0;
+  const _aaravStars = firstStudent ? getTotalStars(firstStudent.studentId) : 0;
+  const _aaravTodayStars = firstStudent ? getTodayStars(firstStudent.studentId) : 0;
 
   return (
     <div className="space-y-6">
@@ -716,7 +716,7 @@ const StudentList = () => {
 
                     {/* ★ LIVE STARS CELL — updates instantly when activity completes */}
                     <td className="py-4 px-4">
-                      <motion.div
+                      <Motion.div
                         key={liveStars}
                         initial={{ scale: 1.4, backgroundColor: '#fef08a' }}
                         animate={{ scale: 1, backgroundColor: '#ffffff00' }}
@@ -732,7 +732,7 @@ const StudentList = () => {
                             +{todayStars} today
                           </div>
                         )}
-                      </motion.div>
+                      </Motion.div>
                     </td>
 
                     <td className="py-4 px-4">
@@ -826,7 +826,7 @@ const StudentList = () => {
                   <h4 className="font-semibold text-text mb-3">Recent Activity History</h4>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {history.slice(0, 10).map((r) => (
-                      <motion.div key={r.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                      <Motion.div key={r.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                         className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
                         <div>
                           <p className="font-semibold text-text text-sm">{r.activityName}</p>
@@ -840,7 +840,7 @@ const StudentList = () => {
                           </p>
                           <p className="text-xs text-text/50">{r.score}%</p>
                         </div>
-                      </motion.div>
+                      </Motion.div>
                     ))}
                   </div>
                 </div>

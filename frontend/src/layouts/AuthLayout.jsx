@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { FloatingElements } from '../components/shared';
 
 const AuthLayout = ({ children, title, subtitle }) => {
@@ -10,7 +10,7 @@ const AuthLayout = ({ children, title, subtitle }) => {
       <FloatingElements density="normal" />
       
       {/* Main content */}
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
@@ -18,7 +18,7 @@ const AuthLayout = ({ children, title, subtitle }) => {
       >
         {/* Logo/Brand */}
         <div className="text-center mb-8">
-          <motion.div
+          <Motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: "spring", duration: 0.6, delay: 0.2 }}
@@ -27,11 +27,11 @@ const AuthLayout = ({ children, title, subtitle }) => {
               Alexi
             </h1>
             <p className="text-lg text-text/70">Smart Learning Platform</p>
-          </motion.div>
+          </Motion.div>
         </div>
         
         {/* Auth Card */}
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4, delay: 0.3 }}
@@ -47,10 +47,10 @@ const AuthLayout = ({ children, title, subtitle }) => {
           )}
           
           {children}
-        </motion.div>
+        </Motion.div>
         
         {/* Footer */}
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
@@ -59,8 +59,8 @@ const AuthLayout = ({ children, title, subtitle }) => {
           <p className="text-sm text-text/50">
             © 2026 Alexi Learning Platform. All rights reserved.
           </p>
-        </motion.div>
-      </motion.div>
+        </Motion.div>
+      </Motion.div>
     </div>
   );
 };

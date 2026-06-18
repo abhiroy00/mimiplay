@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { Menu, X, Bell, Settings, LogOut, User } from 'lucide-react';
 import { Avatar } from '../components/shared';
 
@@ -61,7 +61,7 @@ const MainLayout = ({
               {/* Dropdown Menu */}
               <AnimatePresence>
                 {showUserMenu && (
-                  <motion.div
+                  <Motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
@@ -83,7 +83,7 @@ const MainLayout = ({
                       <LogOut size={18} />
                       <span>Logout</span>
                     </button>
-                  </motion.div>
+                  </Motion.div>
                 )}
               </AnimatePresence>
             </div>
@@ -96,7 +96,7 @@ const MainLayout = ({
         {/* Sidebar */}
         <AnimatePresence>
           {isSidebarOpen && (
-            <motion.aside
+            <Motion.aside
               initial={{ x: -300 }}
               animate={{ x: 0 }}
               exit={{ x: -300 }}
@@ -106,19 +106,19 @@ const MainLayout = ({
               <div className="p-4">
                 {sidebar}
               </div>
-            </motion.aside>
+            </Motion.aside>
           )}
         </AnimatePresence>
         
         {/* Main Content */}
         <main className="flex-1 p-6 overflow-y-auto">
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
           >
             {children}
-          </motion.div>
+          </Motion.div>
         </main>
       </div>
       

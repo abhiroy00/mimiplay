@@ -1,7 +1,7 @@
 // import React from 'react';
 // import { Card } from '../../../components/shared';
 // import { TrendingUp, Award, BookOpen, Star, Calendar } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // const ParentHome = () => {
 //   const childData = {
@@ -105,7 +105,7 @@
 //         </div>
 //         <div className="space-y-3">
 //           {recentActivities.map((activity, index) => (
-//             <motion.div
+//             <Motion.div
 //               key={index}
 //               initial={{ opacity: 0, x: -20 }}
 //               animate={{ opacity: 1, x: 0 }}
@@ -127,7 +127,7 @@
 //                 </p>
 //                 <p className="text-sm text-text/60">{activity.score}/5</p>
 //               </div>
-//             </motion.div>
+//             </Motion.div>
 //           ))}
 //         </div>
 //       </Card>
@@ -137,7 +137,7 @@
 //         <h2 className="text-2xl font-bold text-text mb-4">🏆 Achievements This Week</h2>
 //         <div className="grid grid-cols-3 gap-4">
 //           {achievements.map((achievement, index) => (
-//             <motion.div
+//             <Motion.div
 //               key={index}
 //               initial={{ opacity: 0, scale: 0.9 }}
 //               animate={{ opacity: 1, scale: 1 }}
@@ -147,7 +147,7 @@
 //               <div className="text-5xl mb-2">{achievement.icon}</div>
 //               <h3 className="font-bold text-text mb-1">{achievement.title}</h3>
 //               <p className="text-sm text-text/60">{achievement.description}</p>
-//             </motion.div>
+//             </Motion.div>
 //           ))}
 //         </div>
 //       </Card>
@@ -162,7 +162,7 @@
 // import axios from 'axios';
 // import { Card } from '../../../components/shared';
 // import { TrendingUp, Award, BookOpen, Star, Calendar } from 'lucide-react';
-// import { motion, AnimatePresence } from 'framer-motion';
+// import { motion as Motion, AnimatePresence } from 'framer-motion';
 // import { useStars } from '../../../context/StarContext';
 
 // // Must match the studentId used in ActivitiesTab + StudentList
@@ -353,7 +353,7 @@
 //       {/* ⚡ LIVE new result banner */}
 //       <AnimatePresence>
 //         {showLiveBanner && latestResult && (
-//           <motion.div
+//           <Motion.div
 //             initial={{ opacity: 0, y: -20, scale: 0.95 }}
 //             animate={{ opacity: 1, y: 0, scale: 1 }}
 //             exit={{ opacity: 0, y: -20, scale: 0.95 }}
@@ -367,7 +367,7 @@
 //                 {[...Array(5)].map((_, i) => <span key={i}>{i < latestResult.stars ? '⭐' : '☆'}</span>)}
 //               </p>
 //             </div>
-//           </motion.div>
+//           </Motion.div>
 //         )}
 //       </AnimatePresence>
 
@@ -410,14 +410,14 @@
 //               <Star size={20} className="text-yellow-700" />
 //               <p className="text-sm text-yellow-700 font-semibold">Today Stars</p>
 //             </div>
-//             <motion.div
+//             <Motion.div
 //               key={todayStars}
 //               initial={{ scale: 1.4 }}
 //               animate={{ scale: 1 }}
 //               transition={{ type: 'spring', stiffness: 300, damping: 15 }}
 //             >
 //               <p className="text-4xl font-bold text-yellow-900">{todayStars} ⭐</p>
-//             </motion.div>
+//             </Motion.div>
 //             <p className="text-xs text-yellow-700 mt-1">Avg {todayAvg}/5</p>
 //           </Card>
 
@@ -435,14 +435,14 @@
 //               <Award size={20} className="text-orange-700" />
 //               <p className="text-sm text-orange-700 font-semibold">Total Stars</p>
 //             </div>
-//             <motion.div
+//             <Motion.div
 //               key={totalStars}
 //               initial={{ scale: 1.5 }}
 //               animate={{ scale: 1 }}
 //               transition={{ type: 'spring', stiffness: 300, damping: 15 }}
 //             >
 //               <p className="text-4xl font-bold text-orange-900">{totalStars} ⭐</p>
-//             </motion.div>
+//             </Motion.div>
 //             <p className="text-xs text-orange-700 mt-1">All time ⭐</p>
 //           </Card>
 
@@ -465,7 +465,7 @@
 //         ) : (
 //           <div className="space-y-3">
 //             {todayResults.map((result, index) => (
-//               <motion.div
+//               <Motion.div
 //                 key={result.id}
 //                 initial={{ opacity: 0, x: -20 }}
 //                 animate={{ opacity: 1, x: 0 }}
@@ -491,7 +491,7 @@
 //                   </p>
 //                   <p className="text-sm text-text/60">{result.score}%</p>
 //                 </div>
-//               </motion.div>
+//               </Motion.div>
 //             ))}
 //           </div>
 //         )}
@@ -502,7 +502,7 @@
 //         <h2 className="text-2xl font-bold text-text mb-4">🏆 Achievements This Week</h2>
 //         <div className="grid grid-cols-3 gap-4">
 //           {achievements.map((a, i) => (
-//             <motion.div
+//             <Motion.div
 //               key={i}
 //               initial={{ opacity: 0, scale: 0.9 }}
 //               animate={{ opacity: 1, scale: 1 }}
@@ -512,7 +512,7 @@
 //               <div className="text-5xl mb-2">{a.icon}</div>
 //               <h3 className="font-bold text-text mb-1">{a.title}</h3>
 //               <p className="text-sm text-text/60">{a.description}</p>
-//             </motion.div>
+//             </Motion.div>
 //           ))}
 //         </div>
 //       </Card>
@@ -531,7 +531,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Card } from '../../../components/shared';
 import { TrendingUp, Award, BookOpen, Star, Calendar } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL } from '../../../config';
 
 const ParentHome = ({ selectedChild }) => {
@@ -644,7 +644,7 @@ const ParentHome = ({ selectedChild }) => {
       {/* ⚡ LIVE new result banner */}
       <AnimatePresence>
         {showLiveBanner && latestResult && (
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
@@ -661,7 +661,7 @@ const ParentHome = ({ selectedChild }) => {
                 ))}
               </p>
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
@@ -703,10 +703,10 @@ const ParentHome = ({ selectedChild }) => {
               <Star size={20} className="text-yellow-700" />
               <p className="text-sm text-yellow-700 font-semibold">Today Stars</p>
             </div>
-            <motion.div key={todayStars} initial={{ scale: 1.4 }} animate={{ scale: 1 }}
+            <Motion.div key={todayStars} initial={{ scale: 1.4 }} animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 300, damping: 15 }}>
               <p className="text-4xl font-bold text-yellow-900">{todayStars} ⭐</p>
-            </motion.div>
+            </Motion.div>
             <p className="text-xs text-yellow-700 mt-1">Avg {todayAvg}/5</p>
           </Card>
 
@@ -724,10 +724,10 @@ const ParentHome = ({ selectedChild }) => {
               <Award size={20} className="text-orange-700" />
               <p className="text-sm text-orange-700 font-semibold">Total Stars</p>
             </div>
-            <motion.div key={totalStars} initial={{ scale: 1.5 }} animate={{ scale: 1 }}
+            <Motion.div key={totalStars} initial={{ scale: 1.5 }} animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 300, damping: 15 }}>
               <p className="text-4xl font-bold text-orange-900">{totalStars} ⭐</p>
-            </motion.div>
+            </Motion.div>
             <p className="text-xs text-orange-700 mt-1">All time ⭐</p>
           </Card>
 
@@ -749,7 +749,7 @@ const ParentHome = ({ selectedChild }) => {
         ) : (
           <div className="space-y-3">
             {todayResults.map((result, index) => (
-              <motion.div key={result.id}
+              <Motion.div key={result.id}
                 initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.08 }}
                 className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors">
@@ -772,7 +772,7 @@ const ParentHome = ({ selectedChild }) => {
                   </p>
                   <p className="text-sm text-text/60">{result.score}%</p>
                 </div>
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
         )}
@@ -783,14 +783,14 @@ const ParentHome = ({ selectedChild }) => {
         <h2 className="text-2xl font-bold text-text mb-4">🏆 Achievements This Week</h2>
         <div className="grid grid-cols-3 gap-4">
           {achievements.map((a, i) => (
-            <motion.div key={i}
+            <Motion.div key={i}
               initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: i * 0.1 }}
               className="p-4 bg-gradient-to-br from-yellow-50 to-orange-50 rounded-2xl border-2 border-yellow-200 text-center">
               <div className="text-5xl mb-2">{a.icon}</div>
               <h3 className="font-bold text-text mb-1">{a.title}</h3>
               <p className="text-sm text-text/60">{a.description}</p>
-            </motion.div>
+            </Motion.div>
           ))}
         </div>
       </Card>

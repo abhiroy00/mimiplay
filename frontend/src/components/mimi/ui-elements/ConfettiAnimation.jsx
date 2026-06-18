@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const ConfettiAnimation = ({ duration = 3000, density = 50 }) => {
   const [confetti, setConfetti] = useState([]);
@@ -25,7 +25,7 @@ const ConfettiAnimation = ({ duration = 3000, density = 50 }) => {
   return (
     <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
       {confetti.map((piece) => (
-        <motion.div
+        <Motion.div
           key={piece.id}
           className="absolute -top-10"
           style={{

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import MimiCharacter from '../MimiCharacter';
 import MimiDialogue from '../MimiDialogue';
 import { ConfettiAnimation } from '../ui-elements';
@@ -61,7 +61,7 @@ const WelcomeScreen = ({ studentName = "Friend", onComplete }) => {
       {/* Welcome Message */}
       <div className="absolute top-[15%] left-1/2 -translate-x-1/2 w-full max-w-3xl px-4">
         <AnimatePresence mode="wait">
-          <motion.div
+          <Motion.div
             key={currentMessage}
             initial={{ opacity: 0, scale: 0.8, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -72,12 +72,12 @@ const WelcomeScreen = ({ studentName = "Friend", onComplete }) => {
               text={messages[currentMessage]}
               position="bottom"
             />
-          </motion.div>
+          </Motion.div>
         </AnimatePresence>
       </div>
       
       {/* Student name with animation */}
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0, scale: 0 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: "spring", delay: 0.3 }}
@@ -88,11 +88,11 @@ const WelcomeScreen = ({ studentName = "Friend", onComplete }) => {
             ✨ {studentName} ✨
           </p>
         </div>
-      </motion.div>
+      </Motion.div>
       
       {/* Decorative stars */}
       {[...Array(8)].map((_, i) => (
-        <motion.div
+        <Motion.div
           key={i}
           className="absolute text-5xl"
           style={{
@@ -113,7 +113,7 @@ const WelcomeScreen = ({ studentName = "Friend", onComplete }) => {
           }}
         >
           {i % 2 === 0 ? '⭐' : '✨'}
-        </motion.div>
+        </Motion.div>
       ))}
     </div>
   );

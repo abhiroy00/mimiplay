@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../../config';
 import { Button, Card, Input, Avatar } from '../../../components/shared';
 import { User, Mail, Phone, Lock, Bell, Monitor, Save } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const SettingsTab = () => {
   const [activeTab,    setActiveTab]    = useState('profile');
@@ -69,7 +69,7 @@ const SettingsTab = () => {
         profileData
       );
       showMsg('✅ Profile updated successfully!');
-    } catch (err) {
+    } catch {
       showMsg('❌ Could not save profile', true);
     }
   };
@@ -127,16 +127,16 @@ const SettingsTab = () => {
 
       {/* Success / Error message */}
       {saveMsg && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+        <Motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
           className="bg-green-100 text-green-800 px-4 py-3 rounded-xl border-2 border-green-300 font-semibold">
           {saveMsg}
-        </motion.div>
+        </Motion.div>
       )}
       {saveError && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+        <Motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
           className="bg-red-100 text-red-800 px-4 py-3 rounded-xl border-2 border-red-300 font-semibold">
           {saveError}
-        </motion.div>
+        </Motion.div>
       )}
 
       {/* Tabs */}
@@ -157,7 +157,7 @@ const SettingsTab = () => {
                 <Icon size={20} />
                 <span>{tab.label}</span>
                 {activeTab === tab.id && (
-                  <motion.div layoutId="activeTab"
+                  <Motion.div layoutId="activeTab"
                     className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-600" />
                 )}
               </button>
@@ -168,7 +168,7 @@ const SettingsTab = () => {
 
       {/* ── Profile Tab ──────────────────────────────────────── */}
       {activeTab === 'profile' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           <Card>
             <div className="flex items-center gap-6 mb-6">
               <div className="w-20 h-20 bg-gradient-to-br from-primary-400 to-secondary-400 rounded-full flex items-center justify-center text-3xl font-bold text-white">
@@ -210,12 +210,12 @@ const SettingsTab = () => {
               </Button>
             </div>
           </Card>
-        </motion.div>
+        </Motion.div>
       )}
 
       {/* ── Preferences Tab ──────────────────────────────────── */}
       {activeTab === 'preferences' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           <Card>
             <h3 className="text-xl font-bold text-text mb-4">Notifications</h3>
             <div className="space-y-4">
@@ -268,12 +268,12 @@ const SettingsTab = () => {
               </Button>
             </div>
           </Card>
-        </motion.div>
+        </Motion.div>
       )}
 
       {/* ── Security Tab ─────────────────────────────────────── */}
       {activeTab === 'security' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           <Card>
             <h3 className="text-xl font-bold text-text mb-4">Change Password</h3>
             <div className="space-y-4 max-w-md">
@@ -309,12 +309,12 @@ const SettingsTab = () => {
               </div>
             </div>
           </Card>
-        </motion.div>
+        </Motion.div>
       )}
 
       {/* ── Classroom Tab ────────────────────────────────────── */}
       {activeTab === 'classroom' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           <Card>
             <h3 className="text-xl font-bold text-text mb-4">Smart TV Configuration</h3>
             <div className="space-y-4">
@@ -368,7 +368,7 @@ const SettingsTab = () => {
               </div>
             </div>
           </Card>
-        </motion.div>
+        </Motion.div>
       )}
 
     </div>

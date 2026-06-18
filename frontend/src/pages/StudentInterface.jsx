@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { API_ENDPOINTS } from '../config';
 
 import bgImage from '../assets/images/mimi/bg.jpg';
@@ -197,7 +197,7 @@ const StudentInterface = () => {
     >
       {/* ── Wake-up button ── */}
       <div className="absolute top-8 right-8 z-50">
-        <motion.button
+        <Motion.button
           onClick={startSession}
           disabled={systemStatus !== 'idle'}
           whileHover={{ scale: systemStatus === 'idle' ? 1.05 : 1 }}
@@ -217,23 +217,23 @@ const StudentInterface = () => {
             </>
           ) : (
             <>
-              <motion.span
+              <Motion.span
                 className="text-2xl"
                 animate={{ scale: [1, 1.2, 1] }}
                 transition={{ repeat: Infinity, duration: 1 }}
               >
                 ●
-              </motion.span>
+              </Motion.span>
               <span>Mimi is Active</span>
             </>
           )}
-        </motion.button>
+        </Motion.button>
       </div>
 
       {/* ── Warning banner (too close / unknown) ── */}
       <AnimatePresence>
         {showWarning && (
-          <motion.div
+          <Motion.div
             key="warning"
             initial={{ opacity: 0, scale: 0.8, y: -50 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -243,14 +243,14 @@ const StudentInterface = () => {
             <div className="bg-red-500 text-white px-8 py-4 rounded-3xl border-4 border-red-700 shadow-2xl">
               <p className="text-2xl font-black text-center">{warningMessage}</p>
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
       {/* ── Person recognised card ── */}
       <AnimatePresence>
         {personName && !showWarning && (
-          <motion.div
+          <Motion.div
             key={`person-${personName}`}
             initial={{ opacity: 0, y: -30, scale: 0.8 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -263,23 +263,23 @@ const StudentInterface = () => {
                 Hi {personName}! 👋
               </h2>
               {mood && mood !== 'Unknown' && (
-                <motion.p
+                <Motion.p
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="text-lg font-bold text-purple-500 uppercase mt-2 text-center"
                 >
                   You look {mood} today! {getMoodEmoji(mood)}
-                </motion.p>
+                </Motion.p>
               )}
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
       {/* ── Listening indicator (shown only during listening, not speaking) ── */}
       <AnimatePresence>
         {systemStatus === 'talking' && statusMessage.includes('Listening') && (
-          <motion.div
+          <Motion.div
             key="listening"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -287,22 +287,22 @@ const StudentInterface = () => {
             className="absolute top-36 left-1/2 -translate-x-1/2 z-40"
           >
             <div className="bg-purple-600/90 backdrop-blur px-6 py-3 rounded-2xl shadow-lg flex items-center gap-3">
-              <motion.span
+              <Motion.span
                 className="text-2xl"
                 animate={{ scale: [1, 1.3, 1] }}
                 transition={{ repeat: Infinity, duration: 0.8 }}
               >
                 🎤
-              </motion.span>
+              </Motion.span>
               <span className="text-white font-bold text-lg">Listening…</span>
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
       {/* ── Status message (top-left) ── */}
       {statusMessage && (
-        <motion.div
+        <Motion.div
           key={statusMessage}
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -314,19 +314,19 @@ const StudentInterface = () => {
               {statusMessage}
             </p>
           </div>
-        </motion.div>
+        </Motion.div>
       )}
 
       {/* ── System status pill (bottom-left) ── */}
       {systemStatus !== 'idle' && (
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="absolute bottom-8 left-8 z-40"
         >
           <div className="bg-black/80 backdrop-blur px-6 py-3 rounded-2xl">
             <div className="flex items-center gap-3">
-              <motion.div
+              <Motion.div
                 className={`w-3 h-3 rounded-full ${dotColor()}`}
                 animate={{ scale: [1, 1.3, 1] }}
                 transition={{ repeat: Infinity, duration: 1.5 }}
@@ -334,12 +334,12 @@ const StudentInterface = () => {
               <span className="text-white font-bold capitalize">{systemStatus}</span>
             </div>
           </div>
-        </motion.div>
+        </Motion.div>
       )}
 
       {/* ── Mimi video (bottom-centre) ── */}
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30">
-        <motion.div
+        <Motion.div
           key={getMimiVideo()}  /* re-animate whenever video source changes */
           initial={{ scale: 0.8, opacity: 0, y: 50 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -355,14 +355,14 @@ const StudentInterface = () => {
             playsInline
             className="w-full h-full object-contain"
           />
-        </motion.div>
+        </Motion.div>
       </div>
 
       {/* ── Decorative elements ── */}
       {/* <AnimatePresence>
         {systemStatus !== 'idle' && (
           <>
-            <motion.div
+            <Motion.div
               key="star"
               initial={{ opacity: 0, scale: 0 }}
               animate={{ opacity: 1, scale: 1, rotate: 360 }}
@@ -371,9 +371,9 @@ const StudentInterface = () => {
               className="absolute top-[20%] left-[10%] text-6xl pointer-events-none"
             >
               ⭐
-            </motion.div>
+            </Motion.div>
 
-            <motion.div
+            <Motion.div
               key="cloud"
               initial={{ opacity: 0, scale: 0 }}
               animate={{ opacity: 1, scale: 1, y: [0, -15, 0] }}
@@ -382,7 +382,7 @@ const StudentInterface = () => {
               className="absolute top-[30%] right-[15%] text-5xl pointer-events-none"
             >
               ☁️
-            </motion.div>
+            </Motion.div>
           </>
         )}
       </AnimatePresence> */}

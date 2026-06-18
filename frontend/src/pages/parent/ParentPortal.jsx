@@ -1,7 +1,7 @@
 // import React, { useState } from 'react';
 // import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 // import { Home, TrendingUp, Award, FileText, LogOut, Settings } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // // Parent Pages
 // import ParentHome from '../../components/parent/home/ParentHome';
@@ -78,7 +78,7 @@
 //             const active = isActive(tab.path);
             
 //             return (
-//               <motion.button
+//               <Motion.button
 //                 key={tab.path}
 //                 onClick={() => navigate(tab.path)}
 //                 whileHover={{ scale: 1.05, y: -2 }}
@@ -94,7 +94,7 @@
 //                   <Icon size={18} />
 //                   <span>{tab.label}</span>
 //                 </div>
-//               </motion.button>
+//               </Motion.button>
 //             );
 //           })}
 //         </div>
@@ -102,7 +102,7 @@
 
 //       {/* Main Content - Full Width */}
 //       <div className="px-8 py-8">
-//         <motion.div
+//         <Motion.div
 //           key={location.pathname}
 //           initial={{ opacity: 0, y: 20 }}
 //           animate={{ opacity: 1, y: 0 }}
@@ -116,7 +116,7 @@
 //             <Route path="activity-log" element={<ActivityLog />} />
 //             <Route path="settings" element={<SettingsTab />} />
 //           </Routes>
-//         </motion.div>
+//         </Motion.div>
 //       </div>
 //     </div>
 //   );
@@ -127,7 +127,7 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Home, TrendingUp, Award, FileText, LogOut, Settings } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { API_BASE_URL } from '../../config';
 
 // Parent Pages
@@ -240,7 +240,7 @@ const ParentPortal = () => {
             const active = isActive(tab.path);
 
             return (
-              <motion.button
+              <Motion.button
                 key={tab.path}
                 onClick={() => navigate(tab.path)}
                 whileHover={{ scale: 1.05, y: -2 }}
@@ -256,7 +256,7 @@ const ParentPortal = () => {
                   <Icon size={18} />
                   <span>{tab.label}</span>
                 </div>
-              </motion.button>
+              </Motion.button>
             );
           })}
         </div>
@@ -264,7 +264,7 @@ const ParentPortal = () => {
 
       {/* Main Content - Full Width */}
       <div className="px-8 py-8">
-        <motion.div
+        <Motion.div
           key={location.pathname}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -278,7 +278,7 @@ const ParentPortal = () => {
             <Route path="activity-log" element={<ActivityLog selectedChild={selectedChild}/>} />
             <Route path="settings" element={<SettingsTab />} />
           </Routes>
-        </motion.div>
+        </Motion.div>
       </div>
     </div>
   );

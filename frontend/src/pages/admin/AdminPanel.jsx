@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Users, UserPlus, Settings, LogOut, GraduationCap, Camera } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 // Admin Pages
 import AdminDashboard from '../../components/admin/dashboard/AdminDashboard';

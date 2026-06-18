@@ -1,6 +1,6 @@
 import React from 'react';
 import Button from './Button';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const EmptyState = ({
   icon: Icon,
@@ -14,19 +14,19 @@ const EmptyState = ({
   const containerClass = size === 'sm' ? 'py-4' : size === 'lg' ? 'py-16' : 'py-8';
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className={`flex flex-col items-center justify-center text-center ${containerClass}`}
     >
       {Icon && (
-        <motion.div
+        <Motion.div
           animate={{ y: [0, -5, 0] }}
           transition={{ duration: 2, repeat: Infinity }}
           className="mb-4"
         >
           <Icon size={iconSize} className="text-primary-300" />
-        </motion.div>
+        </Motion.div>
       )}
 
       <h3 className={`font-bold text-text mb-2 ${size === 'sm' ? 'text-lg' : 'text-2xl'}`}>
@@ -42,7 +42,7 @@ const EmptyState = ({
           {actionLabel}
         </Button>
       )}
-    </motion.div>
+    </Motion.div>
   );
 };
 

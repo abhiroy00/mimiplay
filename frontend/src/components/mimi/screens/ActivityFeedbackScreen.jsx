@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Card } from '../../shared';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { ConfettiAnimation } from '../ui-elements';
 import { Home, RotateCcw, ArrowRight } from 'lucide-react';
 
@@ -35,7 +35,7 @@ const ActivityFeedbackScreen = ({ activity, score, stars, mood, onContinue }) =>
     <div className="min-h-screen bg-gradient-to-br from-primary-100 via-cyan-50 to-blue-100 flex items-center justify-center p-4 relative overflow-hidden">
       {showConfetti && <ConfettiAnimation />}
 
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.5 }}
@@ -44,14 +44,14 @@ const ActivityFeedbackScreen = ({ activity, score, stars, mood, onContinue }) =>
         <Card className="shadow-2xl border-4 border-primary-300">
           {/* Success Badge */}
           {isGoodScore && (
-            <motion.div
+            <Motion.div
               initial={{ rotate: -10, opacity: 0 }}
               animate={{ rotate: 0, opacity: 1 }}
               transition={{ delay: 0.2, duration: 0.5 }}
               className="w-24 h-24 bg-gradient-to-br from-yellow-300 to-yellow-400 rounded-full mx-auto mb-4 flex items-center justify-center shadow-lg"
             >
               <span className="text-5xl">⭐</span>
-            </motion.div>
+            </Motion.div>
           )}
 
           {/* Activity Name and Score */}
@@ -63,7 +63,7 @@ const ActivityFeedbackScreen = ({ activity, score, stars, mood, onContinue }) =>
           {/* Main Feedback Section */}
           <div className="grid grid-cols-3 gap-4 mb-8">
             {/* Score Card */}
-            <motion.div
+            <Motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
@@ -77,10 +77,10 @@ const ActivityFeedbackScreen = ({ activity, score, stars, mood, onContinue }) =>
                   style={{ width: `${score}%` }}
                 />
               </div>
-            </motion.div>
+            </Motion.div>
 
             {/* Stars Card */}
-            <motion.div
+            <Motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
@@ -89,10 +89,10 @@ const ActivityFeedbackScreen = ({ activity, score, stars, mood, onContinue }) =>
               <p className="text-sm mb-2 opacity-90">Stars Earned</p>
               <div className="text-5xl">{Array(stars).fill('⭐').join('')}</div>
               <p className="text-xl font-bold mt-2">{stars}/5</p>
-            </motion.div>
+            </Motion.div>
 
             {/* Mood Card */}
-            <motion.div
+            <Motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
@@ -101,11 +101,11 @@ const ActivityFeedbackScreen = ({ activity, score, stars, mood, onContinue }) =>
               <p className="text-sm mb-2 opacity-90">Your Mood</p>
               <p className="text-6xl mb-2">{getMoodEmoji(mood)}</p>
               <p className="text-sm font-semibold">{Math.round(mood * 100)}% Happy</p>
-            </motion.div>
+            </Motion.div>
           </div>
 
           {/* Feedback Message */}
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
@@ -124,7 +124,7 @@ const ActivityFeedbackScreen = ({ activity, score, stars, mood, onContinue }) =>
                 Challenge yourself with harder levels next time!
               </p>
             </div>
-          </motion.div>
+          </Motion.div>
 
           {/* Statistics Summary */}
           <div className="bg-gray-50 rounded-xl p-4 mb-8">
@@ -169,7 +169,7 @@ const ActivityFeedbackScreen = ({ activity, score, stars, mood, onContinue }) =>
             </Button>
           </div>
         </Card>
-      </motion.div>
+      </Motion.div>
     </div>
   );
 };

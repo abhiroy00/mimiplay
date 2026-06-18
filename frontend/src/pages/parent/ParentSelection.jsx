@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { MessageCircle, PlayCircle } from 'lucide-react';
 
 const ParentSelection = () => {
@@ -12,7 +12,7 @@ const ParentSelection = () => {
   try {
     const user = userStr ? JSON.parse(userStr) : null;
     if (user?.name) parentName = user.name.split(' ')[0];
-  } catch (e) {}
+  } catch {}
 
   const options = [
     {
@@ -39,7 +39,7 @@ const ParentSelection = () => {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 flex flex-col items-center justify-center p-6">
 
       {/* Header */}
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-12">
@@ -49,12 +49,12 @@ const ParentSelection = () => {
         <p className="text-xl text-gray-500">
           What would you like to do with your child today?
         </p>
-      </motion.div>
+      </Motion.div>
 
       {/* Options */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl w-full">
         {options.map((opt, idx) => (
-          <motion.div
+          <Motion.div
             key={idx}
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -91,19 +91,19 @@ const ParentSelection = () => {
               <span>Let's Go</span>
               <span className="text-xl group-hover:translate-x-2 transition-transform">→</span>
             </div>
-          </motion.div>
+          </Motion.div>
         ))}
       </div>
 
       {/* Back to Portal */}
-      <motion.button
+      <Motion.button
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4 }}
         onClick={() => navigate('/parent/home')}
         className="mt-10 text-gray-400 hover:text-gray-600 text-sm font-semibold transition-colors">
         ← Go to Parent Portal
-      </motion.button>
+      </Motion.button>
     </div>
   );
 };

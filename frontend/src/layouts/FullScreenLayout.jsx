@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { FloatingElements } from '../components/shared';
 
 const FullScreenLayout = ({ 
@@ -25,14 +25,14 @@ const FullScreenLayout = ({
       {showFloatingElements && <FloatingElements density="high" />}
       
       {/* Main content */}
-      <motion.div
+      <Motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
         className="relative z-10 h-screen w-screen"
       >
         {children}
-      </motion.div>
+      </Motion.div>
     </div>
   );
 };

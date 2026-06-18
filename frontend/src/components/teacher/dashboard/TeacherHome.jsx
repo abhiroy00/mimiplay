@@ -4,7 +4,7 @@ import { API_BASE_URL } from '../../../config';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card } from '../../../components/shared';
 import { Users, BookOpen, BarChart, TrendingUp, Monitor, Play } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const TeacherHome = () => {
   const navigate = useNavigate();
@@ -16,6 +16,7 @@ const TeacherHome = () => {
   const teacherId = localStorage.getItem('userId') || localStorage.getItem('user_id');
 
   // ── Fetch dashboard stats ───────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchStats();
   }, []);
@@ -90,7 +91,7 @@ const TeacherHome = () => {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.0 }}>
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.0 }}>
           <Card hover className="bg-white">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-text">Students Present</h3>
@@ -108,9 +109,9 @@ const TeacherHome = () => {
               </span>
             </div>
           </Card>
-        </motion.div>
+        </Motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <Card hover className="bg-white">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-text">Activities Today</h3>
@@ -123,9 +124,9 @@ const TeacherHome = () => {
             </p>
             <p className="text-sm text-text/60">Completed today</p>
           </Card>
-        </motion.div>
+        </Motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <Card hover className="bg-white">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-text">Average Score</h3>
@@ -141,9 +142,9 @@ const TeacherHome = () => {
               {'☆'.repeat(5 - Math.round(stats?.avg_score ?? 0))}
             </div>
           </Card>
-        </motion.div>
+        </Motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+        <Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
           <Card hover className="bg-white">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-text">This Week</h3>
@@ -156,7 +157,7 @@ const TeacherHome = () => {
             </p>
             <p className="text-sm text-text/60">Stars earned</p>
           </Card>
-        </motion.div>
+        </Motion.div>
 
       </div>
 
@@ -179,7 +180,7 @@ const TeacherHome = () => {
         ) : (
           <div className="space-y-3">
             {stats.recent_activities.map((item, i) => (
-              <motion.div key={i}
+              <Motion.div key={i}
                 initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.07 }}
                 className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors">
@@ -208,7 +209,7 @@ const TeacherHome = () => {
                     </p>
                   </div>
                 </div>
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
         )}

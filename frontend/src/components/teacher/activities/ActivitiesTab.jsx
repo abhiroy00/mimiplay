@@ -1,7 +1,7 @@
 // import React, { useState } from 'react';
 // import { Button, Card, Modal } from '../../../components/shared';
 // import { Play, Settings, Plus, BookOpen, Clock, Users } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // const ActivitiesTab = () => {
 //   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -141,7 +141,7 @@
 //       {/* Activities Grid */}
 //       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 //         {activities.map((activity, index) => (
-//           <motion.div
+//           <Motion.div
 //             key={activity.id}
 //             initial={{ opacity: 0, y: 20 }}
 //             animate={{ opacity: 1, y: 0 }}
@@ -210,7 +210,7 @@
 //                 </Button>
 //               </div>
 //             </Card>
-//           </motion.div>
+//           </Motion.div>
 //         ))}
 //       </div>
 
@@ -292,7 +292,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { Button, Card, Modal } from '../../../components/shared';
 import { Play, Settings, Plus, Clock, Users, Star, Mic, MicOff } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL, API_ENDPOINTS } from '../../../config';
 import { useStars } from '../../../context/StarContext';
 
@@ -482,18 +482,18 @@ function PictureGuessCard({ word, emoji, mimiSaying, phase, listening, transcrip
   const displayEmoji = emoji || WORD_EMOJIS[word] || '🖼️';
   return (
     <div className="flex flex-col items-center gap-5 max-w-md">
-      <motion.div animate={{ y: [0, -10, 0] }} transition={{ duration: 2, repeat: Infinity }}
+      <Motion.div animate={{ y: [0, -10, 0] }} transition={{ duration: 2, repeat: Infinity }}
         className="w-52 h-52 bg-white/95 rounded-3xl shadow-2xl flex items-center justify-center text-9xl border-4 border-purple-300">
         {displayEmoji}
-      </motion.div>
+      </Motion.div>
       <div className="bg-white/90 backdrop-blur rounded-3xl px-10 py-5 shadow-xl border-4 border-purple-300 text-center w-full">
         <p className="text-lg text-purple-500 mb-2">{mimiSaying}</p>
         {phase === 'listening' && (
-          <motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
+          <Motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
             className="flex items-center gap-2 justify-center mt-2 bg-red-50 rounded-full px-5 py-2">
             {listening ? <Mic size={18} className="text-red-500" /> : <MicOff size={18} className="text-gray-400" />}
             <span className="font-bold text-red-600 text-sm">{listening ? 'Say it now! 🎤' : 'Listening…'}</span>
-          </motion.div>
+          </Motion.div>
         )}
         {transcript && <p className="text-xs text-gray-400 mt-2">You said: "{transcript}"</p>}
       </div>
@@ -522,11 +522,11 @@ function CountingCard({ item, mimiSaying, phase, listening, transcript }) {
       <div className="bg-white/90 backdrop-blur rounded-3xl px-10 py-4 shadow-xl border-4 border-purple-300 text-center w-full">
         <p className="text-lg text-purple-500 mb-2">{mimiSaying}</p>
         {phase === 'listening' && (
-          <motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
+          <Motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
             className="flex items-center gap-2 justify-center bg-red-50 rounded-full px-5 py-2">
             {listening ? <Mic size={18} className="text-red-500" /> : <MicOff size={18} className="text-gray-400" />}
             <span className="font-bold text-red-600 text-sm">{listening ? 'Say the number! 🎤' : 'Listening…'}</span>
-          </motion.div>
+          </Motion.div>
         )}
         {transcript && <p className="text-xs text-gray-400 mt-2">You said: "{transcript}"</p>}
       </div>
@@ -544,11 +544,11 @@ function PatternCard({ item, mimiSaying, phase, listening, transcript }) {
       <div className="bg-white/90 backdrop-blur rounded-3xl px-10 py-4 shadow-xl border-4 border-purple-300 text-center w-full">
         <p className="text-lg text-purple-500 mb-2">{mimiSaying}</p>
         {phase === 'listening' && (
-          <motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
+          <Motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
             className="flex items-center gap-2 justify-center bg-red-50 rounded-full px-5 py-2">
             {listening ? <Mic size={18} className="text-red-500" /> : <MicOff size={18} className="text-gray-400" />}
             <span className="font-bold text-red-600 text-sm">{listening ? 'Say your answer! 🎤' : 'Listening…'}</span>
-          </motion.div>
+          </Motion.div>
         )}
         {transcript && <p className="text-xs text-gray-400 mt-2">You said: "{transcript}"</p>}
       </div>
@@ -1239,50 +1239,50 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
       if (currentItem?._word) {
         const wEmoji = WORD_EMOJIS[currentItem._word] || '📖';
         return (
-          <motion.div key={`word-${current}`} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }}
+          <Motion.div key={`word-${current}`} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }}
             className="flex flex-col items-center gap-3 max-w-md w-full">
             {sourceBadge}
-            <motion.div animate={{ y: [0, -10, 0] }} transition={{ duration: 2, repeat: Infinity }}
+            <Motion.div animate={{ y: [0, -10, 0] }} transition={{ duration: 2, repeat: Infinity }}
               className="w-44 h-44 bg-white/95 rounded-3xl shadow-2xl flex items-center justify-center text-8xl border-4 border-purple-300">
               {wEmoji}
-            </motion.div>
+            </Motion.div>
             <div className="bg-white/90 backdrop-blur rounded-3xl px-10 py-5 shadow-xl border-4 border-purple-300 text-center w-full">
               <h2 className="text-5xl font-black text-purple-700 mb-2">{currentItem._word}</h2>
               <p className="text-lg text-purple-500 mb-2">{mimiSaying}</p>
               {phase === 'listening' && (
-                <motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
+                <Motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
                   className="flex items-center gap-2 justify-center mt-2 bg-red-50 rounded-full px-5 py-2">
                   {listening ? <Mic size={18} className="text-red-500" /> : <MicOff size={18} className="text-gray-400" />}
                   <span className="font-bold text-red-600 text-sm">{listening ? 'Say it now! 🎤' : 'Listening…'}</span>
-                </motion.div>
+                </Motion.div>
               )}
               {transcript && <p className="text-xs text-gray-400 mt-2">You said: "{transcript}"</p>}
             </div>
             <div className="text-white/80 font-semibold text-sm">{current + 1} / {total}</div>
-          </motion.div>
+          </Motion.div>
         );
       }
     }
     return (
-      <motion.div key={`word-${current}`} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="flex flex-col items-center gap-5 max-w-md">
-        <motion.div animate={{ y: [0, -10, 0] }} transition={{ duration: 2, repeat: Infinity }}
+      <Motion.div key={`word-${current}`} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="flex flex-col items-center gap-5 max-w-md">
+        <Motion.div animate={{ y: [0, -10, 0] }} transition={{ duration: 2, repeat: Infinity }}
           className="w-44 h-44 bg-white/95 rounded-3xl shadow-2xl flex items-center justify-center text-8xl border-4 border-purple-300">
           {emoji}
-        </motion.div>
+        </Motion.div>
         <div className="bg-white/90 backdrop-blur rounded-3xl px-10 py-5 shadow-xl border-4 border-purple-300 text-center w-full">
           <h2 className="text-5xl font-black text-purple-700 mb-2">{word}</h2>
           <p className="text-lg text-purple-500 mb-2">{mimiSaying}</p>
           {phase === 'listening' && (
-            <motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
+            <Motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
               className="flex items-center gap-2 justify-center mt-2 bg-red-50 rounded-full px-5 py-2">
               {listening ? <Mic size={18} className="text-red-500" /> : <MicOff size={18} className="text-gray-400" />}
               <span className="font-bold text-red-600 text-sm">{listening ? 'Say it now! 🎤' : 'Listening…'}</span>
-            </motion.div>
+            </Motion.div>
           )}
           {transcript && <p className="text-xs text-gray-400 mt-2">You said: "{transcript}"</p>}
         </div>
         <div className="text-white/80 font-semibold text-sm">{current + 1} / {total}</div>
-      </motion.div>
+      </Motion.div>
     );
   }
 
@@ -1302,29 +1302,29 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
     return (
       <div className="fixed inset-0 z-50 bg-cover bg-center flex items-center justify-center"
         style={{ backgroundImage: `url(${bgImage})` }}>
-        <motion.div
+        <Motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           className="bg-white/95 backdrop-blur rounded-3xl px-12 py-10 shadow-2xl border-4 border-purple-300 text-center max-w-md"
         >
-          <motion.div
+          <Motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
             className="text-7xl mb-4 inline-block"
-          >🧠</motion.div>
+          >🧠</Motion.div>
           <h2 className="text-3xl font-black text-purple-700 mb-2">Mimi is preparing…</h2>
           <p className="text-purple-500 text-lg mb-1">Creating fresh <strong>{DIFFICULTY_LABELS[difficulty]}</strong> questions!</p>
           <p className="text-gray-400 text-sm mb-4">{activity.name}</p>
           <div className="flex justify-center gap-2 mt-2">
             {[0, 1, 2].map(i => (
-              <motion.div key={i}
+              <Motion.div key={i}
                 animate={{ y: [0, -10, 0] }}
                 transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.2 }}
                 className="w-3 h-3 bg-purple-400 rounded-full"
               />
             ))}
           </div>
-        </motion.div>
+        </Motion.div>
       </div>
     );
   }
@@ -1345,9 +1345,9 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
       {/* End confirm dialog */}
       <AnimatePresence>
         {showEndConfirm && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-40 bg-black/50 flex items-center justify-center">
-            <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }}
+            <Motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }}
               className="bg-white rounded-3xl px-10 py-8 shadow-2xl border-4 border-red-300 text-center max-w-sm mx-4">
               <div className="text-5xl mb-3">⚠️</div>
               <h2 className="text-2xl font-black text-red-600 mb-2">End Activity?</h2>
@@ -1362,17 +1362,17 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
                   Cancel
                 </button>
               </div>
-            </motion.div>
-          </motion.div>
+            </Motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
       {/* Session Ended — results screen */}
       <AnimatePresence>
         {sessionEnded && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-40 bg-black/70 flex items-center justify-center">
-            <motion.div initial={{ scale: 0.8, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.8 }}
+            <Motion.div initial={{ scale: 0.8, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.8 }}
               className="bg-white rounded-3xl px-10 py-8 shadow-2xl border-4 border-purple-300 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
               <div className="text-center mb-6">
                 <div className="text-6xl mb-2">🏆</div>
@@ -1384,7 +1384,7 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
               ) : (
                 <div className="space-y-3 mb-6">
                   {sessionResults.map((r, i) => (
-                    <motion.div key={i} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}
+                    <Motion.div key={i} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}
                       className="flex items-center justify-between p-4 bg-purple-50 rounded-2xl border-2 border-purple-200">
                       <div className="flex items-center gap-3">
                         <span className="text-2xl font-black text-purple-500">#{i + 1}</span>
@@ -1398,7 +1398,7 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
                           <Star key={j} size={20} className={j < r.stars ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
                         ))}
                       </div>
-                    </motion.div>
+                    </Motion.div>
                   ))}
                 </div>
               )}
@@ -1409,39 +1409,39 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
                 className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-black text-lg rounded-2xl shadow-lg transition-all">
                 Close
               </button>
-            </motion.div>
-          </motion.div>
+            </Motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
       {/* Progress bar */}
       {phase !== 'waiting' && phase !== 'between_students' && (
         <div className="absolute top-0 left-0 right-0 h-2 bg-white/20 z-40">
-          <motion.div className="h-full bg-white rounded-full" animate={{ width: `${progress}%` }} transition={{ duration: 0.4 }} />
+          <Motion.div className="h-full bg-white rounded-full" animate={{ width: `${progress}%` }} transition={{ duration: 0.4 }} />
         </div>
       )}
 
       {/* Too-close warning */}
       <AnimatePresence>
         {showWarning && (
-          <motion.div initial={{ opacity: 0, scale: 0.8, y: -50 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.8, y: -50 }}
+          <Motion.div initial={{ opacity: 0, scale: 0.8, y: -50 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.8, y: -50 }}
             className="absolute top-24 left-1/2 -translate-x-1/2 z-50">
             <div className="bg-red-500 text-white px-8 py-4 rounded-3xl border-4 border-red-700 shadow-2xl">
               <p className="text-2xl font-black text-center">{warningMsg}</p>
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
       {/* Student name banner */}
       <AnimatePresence>
         {studentName && phase !== 'waiting' && phase !== 'between_students' && (
-          <motion.div initial={{ opacity: 0, y: -30, scale: 0.8 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -30 }}
+          <Motion.div initial={{ opacity: 0, y: -30, scale: 0.8 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -30 }}
             className="absolute top-6 left-1/2 -translate-x-1/2 z-40">
             <div className="bg-white/95 backdrop-blur-lg px-10 py-4 rounded-3xl border-4 border-purple-400 shadow-2xl">
               <h2 className="text-3xl font-black text-purple-700 text-center">Hi {studentName}! 👋</h2>
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
@@ -1468,9 +1468,9 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
         <AnimatePresence mode="wait">
 
           {phase === 'waiting' && (
-            <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <Motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="bg-white/90 backdrop-blur rounded-3xl px-12 py-8 shadow-2xl border-4 border-purple-300 text-center">
-                <motion.div animate={{ scale: [1, 1.08, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="text-6xl mb-3">📷</motion.div>
+                <Motion.div animate={{ scale: [1, 1.08, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="text-6xl mb-3">📷</Motion.div>
                 <h2 className="text-3xl font-black text-purple-700 mb-2">
                   {sessionResults.length === 0 ? 'Who is first?' : 'Next student, please step up!'}
                 </h2>
@@ -1480,16 +1480,16 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
                   <p className="text-sm text-green-600 font-semibold mt-2">✅ {sessionResults.length} student{sessionResults.length > 1 ? 's' : ''} done so far</p>
                 )}
               </div>
-            </motion.div>
+            </Motion.div>
           )}
 
           {phase === 'between_students' && (
-            <motion.div key="between" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+            <Motion.div key="between" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
               className="bg-white/95 backdrop-blur rounded-3xl px-10 py-8 shadow-2xl border-4 border-purple-300 max-w-lg w-full">
               <h2 className="text-3xl font-black text-purple-700 text-center mb-4">🏆 Activity Results So Far</h2>
               <div className="space-y-2 mb-6">
                 {sessionResults.map((r, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
+                  <Motion.div key={i} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
                     className="flex items-center justify-between p-3 bg-purple-50 rounded-2xl border border-purple-200">
                     <div className="flex items-center gap-2">
                       <span className="text-lg font-black text-purple-600">#{i + 1}</span>
@@ -1503,41 +1503,41 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
                       </div>
                       <span className="text-sm font-bold text-gray-600">{r.correct}/{r.total}</span>
                     </div>
-                  </motion.div>
+                  </Motion.div>
                 ))}
               </div>
               <div className="text-center">
                 <p className="text-purple-600 font-semibold mb-1">Next student in…</p>
-                <motion.div key={countdown} initial={{ scale: 1.5 }} animate={{ scale: 1 }} className="text-6xl font-black text-purple-700">{countdown}</motion.div>
+                <Motion.div key={countdown} initial={{ scale: 1.5 }} animate={{ scale: 1 }} className="text-6xl font-black text-purple-700">{countdown}</Motion.div>
               </div>
-            </motion.div>
+            </Motion.div>
           )}
 
           {phase === 'intro' && (
-            <motion.div key="intro" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+            <Motion.div key="intro" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
               className="bg-white/90 backdrop-blur rounded-3xl px-12 py-8 shadow-2xl border-4 border-purple-300 text-center max-w-lg">
               <div className="text-6xl mb-3">🌟</div>
               <h2 className="text-4xl font-black text-purple-700 mb-2">{activity.name}</h2>
               <p className="text-xl text-purple-500">{mimiSaying}</p>
-            </motion.div>
+            </Motion.div>
           )}
 
           {(phase === 'asking' || phase === 'listening') && (
-            <motion.div key={`word-${current}`} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }}>
+            <Motion.div key={`word-${current}`} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }}>
               {renderWordCard()}
-            </motion.div>
+            </Motion.div>
           )}
 
           {phase === 'checking' && (
-            <motion.div key="checking" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+            <Motion.div key="checking" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
               className="bg-white/90 backdrop-blur rounded-3xl px-12 py-8 shadow-2xl border-4 border-purple-300 text-center max-w-md w-full">
-              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="text-6xl mb-3 inline-block">🧠</motion.div>
+              <Motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="text-6xl mb-3 inline-block">🧠</Motion.div>
               <h2 className="text-3xl font-black text-purple-700">Mimi AI is thinking…</h2>
-            </motion.div>
+            </Motion.div>
           )}
 
           {phase === 'result' && (
-            <motion.div key="result" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+            <Motion.div key="result" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
               className="bg-white/90 backdrop-blur rounded-3xl px-10 py-7 shadow-2xl border-4 border-purple-300 text-center max-w-md w-full">
               <div className="text-6xl mb-2">{isCorrect ? '🎉' : '💪'}</div>
               <h2 className={`text-4xl font-black mb-3 ${isCorrect ? 'text-green-600' : 'text-orange-500'}`}>
@@ -1547,24 +1547,24 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
                 <p className="text-purple-700 text-lg font-medium">{llmFeedback}</p>
               </div>
               {transcript && <p className="text-xs text-gray-400">Said: "{transcript}" · Correct: "{word}"</p>}
-            </motion.div>
+            </Motion.div>
           )}
 
           {phase === 'done' && (
-            <motion.div key="done" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+            <Motion.div key="done" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
               className="bg-white/90 backdrop-blur rounded-3xl px-12 py-8 shadow-2xl border-4 border-yellow-300 text-center max-w-md w-full">
               <div className="text-6xl mb-2">🏆</div>
               <h2 className="text-4xl font-black text-yellow-600 mb-2">{correct}/{total} Correct!</h2>
               <div className="flex justify-center gap-1 mb-3">
                 {[...Array(5)].map((_, i) => (
-                  <motion.div key={i} initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: i * 0.1, type: 'spring' }}>
+                  <Motion.div key={i} initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: i * 0.1, type: 'spring' }}>
                     <Star size={38} className={i < starsEarned ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
-                  </motion.div>
+                  </Motion.div>
                 ))}
               </div>
               <p className="text-xl font-bold text-purple-700 mb-1">{starsEarned} Stars for {studentName}!</p>
               <p className="text-purple-500 text-sm">Next student coming up…</p>
-            </motion.div>
+            </Motion.div>
           )}
 
         </AnimatePresence>
@@ -1575,31 +1575,31 @@ function MimiActivityOverlay({ activity, difficulty, onStudentDone, onClose, isP
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4">
           {studentName && !['waiting', 'between_students', 'done'].includes(phase) && (
             isPaused ? (
-              <motion.button onClick={handleResume} whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.95 }}
+              <Motion.button onClick={handleResume} whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.95 }}
                 className="flex items-center gap-2 px-8 py-4 bg-green-500 hover:bg-green-600 text-white font-black text-lg rounded-2xl shadow-2xl border-4 border-green-700 transition-colors">
                 ▶ Resume <span className="text-xs font-medium opacity-70 ml-1">[Space]</span>
-              </motion.button>
+              </Motion.button>
             ) : (
-              <motion.button onClick={handlePause} whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.95 }}
+              <Motion.button onClick={handlePause} whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.95 }}
                 className="flex items-center gap-2 px-8 py-4 bg-yellow-400 hover:bg-yellow-500 text-white font-black text-lg rounded-2xl shadow-2xl border-4 border-yellow-600 transition-colors">
                 ⏸ Pause <span className="text-xs font-medium opacity-70 ml-1">[Space]</span>
-              </motion.button>
+              </Motion.button>
             )
           )}
-          <motion.button onClick={handleEndClick} whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.95 }}
+          <Motion.button onClick={handleEndClick} whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.95 }}
             className="flex items-center gap-2 px-8 py-4 bg-red-500 hover:bg-red-600 text-white font-black text-lg rounded-2xl shadow-2xl border-4 border-red-700 transition-colors">
             ⏹ End Session
-          </motion.button>
+          </Motion.button>
         </div>
       )}
 
       {/* Mimi video */}
       <div className="absolute bottom-0 right-[8%] z-30 pointer-events-none">
-        <motion.div key={mimiVideo} initial={{ scale: 0.8, opacity: 0, y: 50 }} animate={{ scale: 1, opacity: 1, y: 0 }} transition={{ type: 'spring', damping: 12, stiffness: 100 }}
+        <Motion.div key={mimiVideo} initial={{ scale: 0.8, opacity: 0, y: 50 }} animate={{ scale: 1, opacity: 1, y: 0 }} transition={{ type: 'spring', damping: 12, stiffness: 100 }}
           className="w-[560px] h-[560px]" style={{ background: 'transparent', backgroundColor: 'transparent' }}>
           <video key={mimiVideo} src={mimiVideo} autoPlay loop muted playsInline className="w-full h-full object-contain"
             style={{ background: 'transparent', backgroundColor: 'transparent' }} />
-        </motion.div>
+        </Motion.div>
       </div>
     </div>
   );
@@ -1643,7 +1643,7 @@ const ActivitiesTab = ({ isParentMode = false }) => {
   const handleConfigureActivity = (activity) => { setSelectedActivity(activity); setShowConfigModal(true); };
 
   // Generate a stable student ID from any real face-detected name
-  const makeStudentId = (name) => {
+  const _makeStudentId = (name) => {
     if (!name) return 'student-unknown';
     return 'student-' + name.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   };
@@ -1723,7 +1723,7 @@ const ActivitiesTab = ({ isParentMode = false }) => {
         {/* Result banner */}
         <AnimatePresence>
           {showBanner && lastResult && (
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+            <Motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
               className="bg-gradient-to-r from-yellow-400 to-orange-400 rounded-2xl p-4 flex items-center gap-4 text-white">
               <div className="text-4xl">🎉</div>
               <div>
@@ -1732,7 +1732,7 @@ const ActivitiesTab = ({ isParentMode = false }) => {
                   {lastResult.studentName} earned {[...Array(5)].map((_, i) => <span key={i}>{i < lastResult.stars ? '⭐' : '☆'}</span>)} — live in Students &amp; Parent portal!
                 </p>
               </div>
-            </motion.div>
+            </Motion.div>
           )}
         </AnimatePresence>
 
@@ -1761,7 +1761,7 @@ const ActivitiesTab = ({ isParentMode = false }) => {
         {/* Activities Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {activities.map((activity, index) => (
-            <motion.div key={activity.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+            <Motion.div key={activity.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
               <Card hover className="h-full">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
@@ -1813,7 +1813,7 @@ const ActivitiesTab = ({ isParentMode = false }) => {
                   <Button variant="outline" icon={Settings} onClick={() => handleConfigureActivity(activity)}>Config</Button>
                 </div>
               </Card>
-            </motion.div>
+            </Motion.div>
           ))}
         </div>
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 
 // ✅ Same ActivitiesTab jo teacher mein use ho rahi hai
@@ -15,7 +15,7 @@ const ParentActivities = () => {
       {/* Top Bar */}
       <div className="bg-white/80 backdrop-blur-lg border-b-4 border-pink-200 px-8 py-4">
         <div className="flex items-center gap-4">
-          <motion.button
+          <Motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigate('/parent-selection')}
@@ -23,7 +23,7 @@ const ParentActivities = () => {
               text-purple-700 font-bold rounded-2xl transition-colors">
             <ArrowLeft size={20} />
             Back
-          </motion.button>
+          </Motion.button>
 
           <h1 className="text-3xl font-bold text-gray-800">
             🎮 Learning Activities

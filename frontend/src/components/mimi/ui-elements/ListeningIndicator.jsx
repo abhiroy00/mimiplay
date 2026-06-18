@@ -1,10 +1,10 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { Mic } from 'lucide-react';
 
 const ListeningIndicator = ({ isListening = true, className = '' }) => {
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0, scale: 0 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0 }}
@@ -15,7 +15,7 @@ const ListeningIndicator = ({ isListening = true, className = '' }) => {
         {/* Pulsing circles */}
         {isListening && (
           <>
-            <motion.div
+            <Motion.div
               className="absolute inset-0 bg-primary-400 rounded-full"
               animate={{
                 scale: [1, 1.5, 1],
@@ -27,7 +27,7 @@ const ListeningIndicator = ({ isListening = true, className = '' }) => {
                 ease: "easeInOut"
               }}
             />
-            <motion.div
+            <Motion.div
               className="absolute inset-0 bg-primary-400 rounded-full"
               animate={{
                 scale: [1, 2, 1],
@@ -44,7 +44,7 @@ const ListeningIndicator = ({ isListening = true, className = '' }) => {
         )}
         
         {/* Main microphone button */}
-        <motion.div
+        <Motion.div
           className="relative bg-gradient-to-br from-primary-400 to-primary-600 rounded-full p-8 shadow-2xl"
           animate={isListening ? {
             scale: [1, 1.1, 1],
@@ -56,20 +56,20 @@ const ListeningIndicator = ({ isListening = true, className = '' }) => {
           }}
         >
           <Mic size={48} className="text-white" />
-        </motion.div>
+        </Motion.div>
         
         {/* Listening text */}
         {isListening && (
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className="absolute -bottom-12 left-1/2 -translate-x-1/2 whitespace-nowrap"
           >
             <p className="text-xl font-bold text-text">Listening...</p>
-          </motion.div>
+          </Motion.div>
         )}
       </div>
-    </motion.div>
+    </Motion.div>
   );
 };
 

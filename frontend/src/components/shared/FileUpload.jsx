@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { Upload, X, Check } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const FileUpload = ({ onFileSelect, accept = 'image/*', label = 'Upload File' }) => {
   const [file, setFile] = React.useState(null);
@@ -46,7 +46,7 @@ const FileUpload = ({ onFileSelect, accept = 'image/*', label = 'Upload File' })
   return (
     <div className="space-y-3">
       {!file ? (
-        <motion.div
+        <Motion.div
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           whileHover={{ scale: 1.02 }}
@@ -63,9 +63,9 @@ const FileUpload = ({ onFileSelect, accept = 'image/*', label = 'Upload File' })
             onChange={handleFileChange}
             className="hidden"
           />
-        </motion.div>
+        </Motion.div>
       ) : (
-        <motion.div
+        <Motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           className="bg-green-50 border-2 border-green-300 rounded-xl p-4"
@@ -92,7 +92,7 @@ const FileUpload = ({ onFileSelect, accept = 'image/*', label = 'Upload File' })
               <X size={18} className="text-red-600" />
             </button>
           </div>
-        </motion.div>
+        </Motion.div>
       )}
     </div>
   );

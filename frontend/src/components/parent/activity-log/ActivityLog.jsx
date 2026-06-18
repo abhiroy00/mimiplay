@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../../config';
 import { Card, Button } from '../../../components/shared';
 import { Calendar, Filter, Download, BookOpen, Star } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const getTypeColor = (type) => {
   const colors = {
@@ -225,7 +225,7 @@ const ActivityLog = ({ selectedChild }) => {
 
       {/* Activity Timeline */}
       {groupedDays.map((dayData, dayIndex) => (
-        <motion.div key={dayData.date}
+        <Motion.div key={dayData.date}
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: dayIndex * 0.08 }}>
           <Card>
@@ -244,7 +244,7 @@ const ActivityLog = ({ selectedChild }) => {
 
             <div className="space-y-3">
               {dayData.activities.map((activity, actIndex) => (
-                <motion.div key={activity.id || actIndex}
+                <Motion.div key={activity.id || actIndex}
                   initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: dayIndex * 0.08 + actIndex * 0.05 }}
                   className="flex items-start gap-4 p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors">
@@ -286,11 +286,11 @@ const ActivityLog = ({ selectedChild }) => {
                       </div>
                     </div>
                   </div>
-                </motion.div>
+                </Motion.div>
               ))}
             </div>
           </Card>
-        </motion.div>
+        </Motion.div>
       ))}
 
     </div>

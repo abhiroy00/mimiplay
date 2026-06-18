@@ -1,7 +1,7 @@
 // import React from 'react';
 // import { Card } from '../../../components/shared';
 // import { Trophy, Star, Award, Lock } from 'lucide-react';
-// import { motion } from 'framer-motion';
+// import { motion as Motion } from 'framer-motion';
 
 // const AchievementsTab = () => {
 //   const earnedBadges = [
@@ -78,7 +78,7 @@
 //         <h2 className="text-2xl font-bold text-text mb-4">Badges Earned</h2>
 //         <div className="grid grid-cols-4 gap-4">
 //           {earnedBadges.map((badge, index) => (
-//             <motion.div
+//             <Motion.div
 //               key={badge.id}
 //               initial={{ opacity: 0, scale: 0.8, rotateY: 180 }}
 //               animate={{ opacity: 1, scale: 1, rotateY: 0 }}
@@ -102,7 +102,7 @@
 
 //               {/* Shine effect */}
 //               <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl" />
-//             </motion.div>
+//             </Motion.div>
 //           ))}
 //         </div>
 //       </Card>
@@ -116,7 +116,7 @@
 //         <p className="text-text/60 mb-4">Keep learning to unlock these achievements!</p>
 //         <div className="grid grid-cols-4 gap-4">
 //           {lockedBadges.map((badge, index) => (
-//             <motion.div
+//             <Motion.div
 //               key={badge.id}
 //               initial={{ opacity: 0, y: 20 }}
 //               animate={{ opacity: 1, y: 0 }}
@@ -134,7 +134,7 @@
 //               <div className="absolute top-3 right-3">
 //                 <Lock size={20} className="text-gray-500" />
 //               </div>
-//             </motion.div>
+//             </Motion.div>
 //           ))}
 //         </div>
 //       </Card>
@@ -148,7 +148,7 @@
 //         <p className="text-text/60 mb-4">See how you compare with your classmates</p>
 //         <div className="space-y-3">
 //           {leaderboard.map((student, index) => (
-//             <motion.div
+//             <Motion.div
 //               key={student.rank}
 //               initial={{ opacity: 0, x: -20 }}
 //               animate={{ opacity: 1, x: 0 }}
@@ -185,7 +185,7 @@
 //                 {student.trend === 'down' && '📉'}
 //                 {student.trend === 'stable' && '➡️'}
 //               </div>
-//             </motion.div>
+//             </Motion.div>
 //           ))}
 //         </div>
 //       </Card>
@@ -215,7 +215,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../../config';
 import { Card } from '../../../components/shared';
 import { Star, Lock } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const ALL_BADGES = [
   { id:1, icon:'🌟', name:'First Star',    description:'Earn your first star',   unlockAt:1,   rarity:'common'    },
@@ -320,7 +320,7 @@ const AchievementsTab = ({ selectedChild }) => {
 
       {/* Stars summary */}
       <Card className="bg-gradient-to-r from-yellow-400 to-orange-400 border-0 text-white text-center py-6">
-        <motion.div key={totalStars} initial={{ scale: 0.8 }} animate={{ scale: 1 }}
+        <Motion.div key={totalStars} initial={{ scale: 0.8 }} animate={{ scale: 1 }}
           transition={{ type: 'spring' }}>
           <Star size={56} className="mx-auto mb-2 fill-white text-white" />
           <p className="text-6xl font-bold">{totalStars}</p>
@@ -328,7 +328,7 @@ const AchievementsTab = ({ selectedChild }) => {
           <p className="text-white/70 text-sm mt-1">
             {earned.length} / {ALL_BADGES.length} badges unlocked
           </p>
-        </motion.div>
+        </Motion.div>
       </Card>
 
       {/* Earned Badges */}
@@ -339,7 +339,7 @@ const AchievementsTab = ({ selectedChild }) => {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {earned.map((badge, i) => (
-              <motion.div key={badge.id}
+              <Motion.div key={badge.id}
                 initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.07, type: 'spring' }}>
                 <Card className="text-center hover:shadow-lg transition-shadow">
@@ -352,7 +352,7 @@ const AchievementsTab = ({ selectedChild }) => {
                     {badge.rarity}
                   </span>
                 </Card>
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
         </div>
@@ -377,7 +377,7 @@ const AchievementsTab = ({ selectedChild }) => {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {locked.map((badge, i) => (
-              <motion.div key={badge.id}
+              <Motion.div key={badge.id}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.06 }}>
                 <Card className="text-center opacity-60">
@@ -391,7 +391,7 @@ const AchievementsTab = ({ selectedChild }) => {
                     Need {badge.unlockAt} ⭐ ({Math.max(0, badge.unlockAt - totalStars)} more)
                   </p>
                 </Card>
-              </motion.div>
+              </Motion.div>
             ))}
           </div>
         </div>
@@ -402,7 +402,7 @@ const AchievementsTab = ({ selectedChild }) => {
         <h2 className="text-2xl font-bold text-text mb-4">🏅 Class Leaderboard</h2>
         <div className="space-y-3">
           {leaderboard.map((student, i) => (
-            <motion.div key={student.name}
+            <Motion.div key={student.name}
               initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.07 }}
               className={`flex items-center justify-between p-4 rounded-2xl border-2 ${
@@ -432,7 +432,7 @@ const AchievementsTab = ({ selectedChild }) => {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </Motion.div>
           ))}
         </div>
       </Card>

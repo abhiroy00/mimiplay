@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 const Input = ({ 
   label,
@@ -43,13 +43,13 @@ const Input = ({
       </div>
       
       {error && (
-        <motion.p
+        <Motion.p
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-red-500 text-sm mt-1"
         >
           {error}
-        </motion.p>
+        </Motion.p>
       )}
     </div>
   );
