@@ -793,8 +793,12 @@ const MimiChat = () => {
       'by mimi', 'by mini', 'ok by', 'chalo by',
     ]
 
-    // Extra check: whole transcript is just "by" or "bye" (short word, exact match)
-    const isBye = (t) => BYE_PHRASES.some(p => t.includes(p)) || t === 'by' || t === 'bye' || t === 'by mimi'
+    // Extra check: exact short words + common STT misrecognitions of "bye"
+    // en-IN Google STT: "bye" → "by" / "buy" / "bi"
+    const isBye = (t) =>
+      BYE_PHRASES.some(p => t.includes(p)) ||
+      t === 'by' || t === 'bye' || t === 'buy' || t === 'bi' ||
+      t === 'by mimi' || t === 'buy mimi' || t === 'buy mini' || t === 'bi mimi'
 
     const recognition           = new SR()
     recognition.lang            = 'en-IN'
