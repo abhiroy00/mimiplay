@@ -192,8 +192,9 @@ CORS(app, origins=[
     "https://mimiplay.in",
     "https://www.mimiplay.in",
     "http://localhost:5173",
-    "http://localhost:5174",   # ← YEH ADD KARO
-    "http://localhost:5175",   # ← optional: future port changes ke liye
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "https://main.djregh9s8o809.amplifyapp.com",
 ])
 
 
