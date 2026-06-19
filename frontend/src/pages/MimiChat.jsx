@@ -721,14 +721,13 @@ const MimiChat = () => {
     const msg = buildGoodbyeMessage(topicsListRef.current)
     setMimiText(msg)
 
-    const showGoodbyeAndStop = () => {
-      setIsSpeaking(false)
-      goodbyeInProgressRef.current = false
-      setShowGoodbye(true)
-      stopSessionRef.current && stopSessionRef.current()
-    }
+    // ── Show goodbye screen IMMEDIATELY — no waiting for TTS ─────
+    setIsSpeaking(false)
+    setShowGoodbye(true)
+    stopSessionRef.current && stopSessionRef.current()
+    goodbyeInProgressRef.current = false
 
-    // Try backend TTS first
+    // Play TTS in background after screen is already showing
     try {
       const token = localStorage.getItem('token')
       const res = await axios.post(API_ENDPOINTS.MIMI_SPEAK, { text: msg },
@@ -739,7 +738,7 @@ const MimiChat = () => {
         const url   = URL.createObjectURL(blob)
         const audio = new Audio(url)
         currentAudioRef.current = audio
-        const cleanup = () => { URL.revokeObjectURL(url); currentAudioRef.current = null; showGoodbyeAndStop() }
+        const cleanup = () => { URL.revokeObjectURL(url); currentAudioRef.current = null }
         audio.onended = cleanup
         audio.onerror = cleanup
         audio.play().catch(cleanup)
@@ -749,16 +748,12 @@ const MimiChat = () => {
       console.error('[Goodbye TTS]', err)
     }
 
-    // Fallback: browser speech synthesis — works without any backend
+    // Fallback: browser speech synthesis
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel()
       const utter = new SpeechSynthesisUtterance(msg)
       utter.rate = 0.9
-      utter.onend = showGoodbyeAndStop
-      utter.onerror = showGoodbyeAndStop
       window.speechSynthesis.speak(utter)
-    } else {
-      showGoodbyeAndStop()
     }
   }, [])
 
