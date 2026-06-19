@@ -625,6 +625,9 @@ def mimi_chat_audio():
             session.current_audio      = _generate_tts_audio_base64(result["text"])
             session.current_audio_text = result["text"]
             result["audio"]            = session.current_audio
+        if result and result.get("farewell"):
+            _mimi_sessions.pop(session_id, None)
+            logger.info("[mimi-chat-audio] Farewell — session %s auto-removed", session_id)
         return jsonify({"status": "success", "text": text, "data": result})
     except sr.UnknownValueError:
         return jsonify({"status": "error", "message": "Could not understand audio"}), 400

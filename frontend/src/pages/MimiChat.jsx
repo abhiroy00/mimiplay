@@ -204,11 +204,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import axios from 'axios'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
 import { API_ENDPOINTS } from '../config'
+import GoodbyeScreen from '../components/mimi/screens/GoodbyeScreen'
 
 import bgImage          from '../assets/images/mimi/bg.jpg'
 import mimiIdleVideo    from '../assets/images/mimi/mimiidell_nobg.webm'
 import mimiWaveVideo    from '../assets/images/mimi/mimiwavehand_nobg.webm'
-// ✅ Reading book video — jo tumne bheja hai
 import mimiReadingVideo from '../assets/images/mimi/mimiidell_nobg.webm'
 
 // Closing line is always the same — gives the child a clear, recognizable
@@ -244,6 +244,7 @@ const buildGoodbyeMessage = (topics) => {
 const MimiChat = () => {
 
   const [sessionState,  setSessionState]  = useState('idle')
+  const [showGoodbye,   setShowGoodbye]   = useState(false)
   const [studentName,   setStudentName]   = useState('')
   const [_sessionId,    setSessionId]     = useState('')
   const [mimiText,      setMimiText]      = useState('')
@@ -509,6 +510,25 @@ const MimiChat = () => {
       const res  = await axios.post(API_ENDPOINTS.MIMI_CHAT_AUDIO, form,
         { headers: { Authorization: `Bearer ${token}` } })
       const data = res.data?.data
+      if (data?.farewell) {
+        // Backend detected farewell — play goodbye audio then show GoodbyeScreen
+        setMimiText(data.text || '')
+        if (data.audio) {
+          const bytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))
+          const blob  = new Blob([bytes], { type: 'audio/mpeg' })
+          const url   = URL.createObjectURL(blob)
+          const audio = new Audio(url)
+          currentAudioRef.current = audio
+          const done = () => { URL.revokeObjectURL(url); currentAudioRef.current = null; setShowGoodbye(true); stopSessionRef.current && stopSessionRef.current() }
+          audio.onended = done
+          audio.onerror = done
+          audio.play().catch(done)
+        } else {
+          setShowGoodbye(true)
+          stopSessionRef.current && stopSessionRef.current()
+        }
+        return
+      }
       if (data?.text) {
         setMimiText(data.text)
         setImageUrl(data.image_url || null)
@@ -717,6 +737,7 @@ const MimiChat = () => {
           currentAudioRef.current = null
           setIsSpeaking(false)
           goodbyeInProgressRef.current = false
+          setShowGoodbye(true)
           stopSessionRef.current && stopSessionRef.current()
         }
         audio.onended = cleanup
@@ -730,6 +751,7 @@ const MimiChat = () => {
     // Fallback: no audio → stop immediately
     setIsSpeaking(false)
     goodbyeInProgressRef.current = false
+    setShowGoodbye(true)
     stopSessionRef.current && stopSessionRef.current()
   }, [])
 
@@ -991,6 +1013,32 @@ const MimiChat = () => {
   return (
     <div className="relative min-h-screen w-full bg-cover bg-center overflow-hidden"
       style={{ backgroundImage: `url(${bgImage})` }}>
+
+      {/* ── Goodbye Screen Overlay ────────────────────────────── */}
+      <AnimatePresence>
+        {showGoodbye && (
+          <Motion.div
+            key="goodbye"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[100] bg-gradient-to-b from-purple-100 to-pink-100"
+          >
+            <GoodbyeScreen
+              studentName={studentName || 'Superstar'}
+              totalStars={0}
+              onComplete={() => {
+                setShowGoodbye(false)
+                setSessionState('idle')
+                setStudentName('')
+                setMimiText('')
+                setChatHistory([])
+                setTopicsList([])
+              }}
+            />
+          </Motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Hidden canvas for capturing frames */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />

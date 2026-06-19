@@ -78,6 +78,13 @@ class MimiLLMSession:
     No server-side microphone, no background threads, no duplicate DB writes.
     """
 
+    FAREWELL_KEYWORDS = [
+        "bye", "goodbye", "bye bye", "see you", "see ya", "good night",
+        "goodnight", "i have to go", "i got to go", "i need to go",
+        "i'm leaving", "i am leaving", "stop session", "end session",
+        "ok bye", "tata", "alvida", "stop mimi", "close session",
+    ]
+
     TOPIC_REQUEST_PHRASES = [
         "what topics", "which topics", "what have we discussed",
         "what did we talk", "what topics did we", "what did we learn",
@@ -234,6 +241,10 @@ class MimiLLMSession:
         logger.info("[Memory] Cleared for session %s", self.session_id)
 
     # ── Topic Memory Methods ─────────────────────────────────────────────────
+
+    def _is_farewell(self, text: str) -> bool:
+        lower = text.lower().strip()
+        return any(kw in lower for kw in self.FAREWELL_KEYWORDS)
 
     def _is_topic_request(self, text):
         t = text.lower().strip()
@@ -805,6 +816,32 @@ class MimiLLMSession:
             self.load_history()
 
         try:
+            # ── Farewell check — skip LLM, play warm goodbye ─────────
+            if self._is_farewell(user_text):
+                import random
+                topics = self.topics_discussed
+                if topics:
+                    topic_str = ' '.join(topics[-1].split()[:3])
+                    templates = [
+                        f"Great job learning about {topic_str} today! 🌟 See you next time, superstar!",
+                        f"Wow, you explored {topic_str} today! 🚀 Bye-bye, super learner!",
+                        f"You and {topic_str} make a great team! 🍪 See you next time, superstar!",
+                    ]
+                else:
+                    templates = [
+                        "Bye-bye, super learner! 👋 You did amazing today — See you next time, superstar! 🌟",
+                        "Goodbye, little explorer! 🚀 Every day with you is an adventure — See you next time! 🌟",
+                        "See you later, alligator! 🐊 Keep being curious — See you next time, superstar! 🌟",
+                    ]
+                msg = random.choice(templates)
+                self._add_to_history("user", user_text)
+                self._add_to_history("assistant", msg)
+                self.current_text   = msg
+                self.current_action = "done"
+                self.session_ended  = True
+                logger.info("[Farewell] Detected farewell — session ending: %s", self.session_id)
+                return {"text": msg, "farewell": True, "image_url": None, "yt_video": None, "topic": "", "audio": None}
+
             # ── Topic list shortcut — skip LLM entirely ──────────────
             if self._is_topic_request(user_text):
                 result = self._build_topic_list_response()
