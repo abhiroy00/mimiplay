@@ -493,7 +493,7 @@ const MimiChat = () => {
   const _sendAudioToMimi = useCallback(async (blob) => {
     const sid  = sessionIdRef.current
     const name = studentNameRef.current
-    if (!sid || !name || blob.size < 2000) {
+    if (!sid || !name || blob.size < 500) {
       // too short / silence — just go back to listening
       isMimiSpeakingRef.current = false
       setVadStatus('listening')
@@ -721,25 +721,25 @@ const MimiChat = () => {
     const msg = buildGoodbyeMessage(topicsListRef.current)
     setMimiText(msg)
 
+    const showGoodbyeAndStop = () => {
+      setIsSpeaking(false)
+      goodbyeInProgressRef.current = false
+      setShowGoodbye(true)
+      stopSessionRef.current && stopSessionRef.current()
+    }
+
+    // Try backend TTS first
     try {
       const token = localStorage.getItem('token')
       const res = await axios.post(API_ENDPOINTS.MIMI_SPEAK, { text: msg },
         { headers: { Authorization: `Bearer ${token}` } })
       if (res.data?.audio) {
-        // Play audio directly — no VAD restart, no interrupt detection
         const bytes = Uint8Array.from(atob(res.data.audio), c => c.charCodeAt(0))
         const blob  = new Blob([bytes], { type: 'audio/mpeg' })
         const url   = URL.createObjectURL(blob)
         const audio = new Audio(url)
         currentAudioRef.current = audio
-        const cleanup = () => {
-          URL.revokeObjectURL(url)
-          currentAudioRef.current = null
-          setIsSpeaking(false)
-          goodbyeInProgressRef.current = false
-          setShowGoodbye(true)
-          stopSessionRef.current && stopSessionRef.current()
-        }
+        const cleanup = () => { URL.revokeObjectURL(url); currentAudioRef.current = null; showGoodbyeAndStop() }
         audio.onended = cleanup
         audio.onerror = cleanup
         audio.play().catch(cleanup)
@@ -748,11 +748,18 @@ const MimiChat = () => {
     } catch (err) {
       console.error('[Goodbye TTS]', err)
     }
-    // Fallback: no audio → stop immediately
-    setIsSpeaking(false)
-    goodbyeInProgressRef.current = false
-    setShowGoodbye(true)
-    stopSessionRef.current && stopSessionRef.current()
+
+    // Fallback: browser speech synthesis — works without any backend
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+      const utter = new SpeechSynthesisUtterance(msg)
+      utter.rate = 0.9
+      utter.onend = showGoodbyeAndStop
+      utter.onerror = showGoodbyeAndStop
+      window.speechSynthesis.speak(utter)
+    } else {
+      showGoodbyeAndStop()
+    }
   }, [])
 
   useEffect(() => { sayGoodbyeAndStopRef.current = sayGoodbyeAndStop }, [sayGoodbyeAndStop])
@@ -784,6 +791,9 @@ const MimiChat = () => {
       'goodnight', 'good night', 'see you', 'i have to go',
       'bye bye', 'ok bye', 'tata', 'stop mimi', 'close session',
       'exit', 'quit', 'stop learning', 'i am done', "i'm done",
+      'band karo', 'bas karo', 'rukjao', 'ruk jao', 'alvida',
+      'phir milenge', 'kal milenge', 'chalo bye', 'ok goodbye',
+      'see you later', 'see ya', 'later', 'i want to stop',
     ]
 
     const recognition           = new SR()
