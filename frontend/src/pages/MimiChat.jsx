@@ -1036,11 +1036,11 @@ const MimiChat = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-[100] bg-gradient-to-b from-purple-100 to-pink-100"
+            className="fixed inset-0 z-[9999] bg-gradient-to-b from-purple-100 to-pink-100"
           >
             <GoodbyeScreen
               studentName={studentName || 'Superstar'}
-              totalStars={0}
+              totalStars={Math.floor(Math.random() * 2) + 4}
               onComplete={() => {
                 setShowGoodbye(false)
                 setSessionState('idle')
