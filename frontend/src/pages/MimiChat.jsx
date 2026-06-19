@@ -788,8 +788,13 @@ const MimiChat = () => {
       'exit', 'quit', 'stop learning', 'i am done', "i'm done",
       'band karo', 'bas karo', 'rukjao', 'ruk jao', 'alvida',
       'phir milenge', 'kal milenge', 'chalo bye', 'ok goodbye',
-      'see you later', 'see ya', 'later', 'i want to stop',
+      'see you later', 'see ya', 'i want to stop',
+      // Google STT (en-IN) often transcribes "bye" as "by"
+      'by mimi', 'by mini', 'ok by', 'chalo by',
     ]
+
+    // Extra check: whole transcript is just "by" or "bye" (short word, exact match)
+    const isBye = (t) => BYE_PHRASES.some(p => t.includes(p)) || t === 'by' || t === 'bye' || t === 'by mimi'
 
     const recognition           = new SR()
     recognition.lang            = 'en-IN'
@@ -808,7 +813,7 @@ const MimiChat = () => {
 
         // ── BYE CHECK: always first — exempt from all guards ──────────
         // Fires on interim AND final, during Mimi speaking AND silence.
-        if (BYE_PHRASES.some(p => lower.includes(p))) {
+        if (isBye(lower)) {
           clearTimeout(silenceTimer)
           sayGoodbyeAndStopRef.current
             ? sayGoodbyeAndStopRef.current()
@@ -852,7 +857,7 @@ const MimiChat = () => {
       clearTimeout(silenceTimer)
       // Bye phrase detected via pending interim text (recognition ended before final)
       const pendingLower = pendingText.toLowerCase().trim()
-      if (pendingLower && BYE_PHRASES.some(p => pendingLower.includes(p))) {
+      if (pendingLower && isBye(pendingLower)) {
         pendingText = ''
         sayGoodbyeAndStopRef.current
           ? sayGoodbyeAndStopRef.current()
