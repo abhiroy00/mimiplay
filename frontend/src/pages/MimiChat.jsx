@@ -211,35 +211,18 @@ import mimiIdleVideo    from '../assets/images/mimi/mimiidell_nobg.webm'
 import mimiWaveVideo    from '../assets/images/mimi/mimiwavehand_nobg.webm'
 import mimiReadingVideo from '../assets/images/mimi/mimiidell_nobg.webm'
 
-// Closing line is always the same — gives the child a clear, recognizable
-// signal that the session has ended (per the farewell-prompt spec).
-const GOODBYE_CLOSING = 'See you next time, superstar! 🌟'
-
-// Generic templates (no topic learned yet, or topic unavailable) — used as-is.
-const GOODBYE_GENERIC = [
-  `Bye-bye, super learner! 👋 You did amazing today — ${GOODBYE_CLOSING}`,
-  `Goodbye, little explorer! 🚀 Every day with you is an adventure — ${GOODBYE_CLOSING}`,
-  `See you later, alligator! 🐊 Keep being curious — ${GOODBYE_CLOSING}`,
+const MOTIVATIONAL_QUOTES = [
+  "You're a star! 🌟 Keep shining bright!",
+  "Every day you learn something new – that's amazing! 🚀",
+  "You're growing smarter and smarter! See you next time! 👋",
+  "Remember, you can do anything you put your mind to! 💪",
+  "Learning is an adventure, and you're the best explorer! 🗺️",
+  "You're so curious – that's the best superpower! 🦸",
+  "Keep asking questions – that's how we learn! ❓",
+  "You made today awesome! Come back soon! 🎉",
 ]
-
-// Templates with a "{topic}" placeholder — used when at least one topic was learned this session.
-const GOODBYE_WITH_TOPIC = [
-  `Great job learning about {topic} today! 🌟 ${GOODBYE_CLOSING}`,
-  `Wow, you mastered {topic} today! 🚀 ${GOODBYE_CLOSING}`,
-  `You and {topic} make a great team today! 🍪 ${GOODBYE_CLOSING}`,
-]
-
-// Keeps the inserted topic short so the final message stays well under 20 words.
-const shortenTopic = (topic) => topic.split(' ').slice(0, 3).join(' ')
-
-const buildGoodbyeMessage = (topics) => {
-  const latestTopic = topics && topics.length > 0 ? topics[topics.length - 1] : null
-  if (!latestTopic) {
-    return GOODBYE_GENERIC[Math.floor(Math.random() * GOODBYE_GENERIC.length)]
-  }
-  const template = GOODBYE_WITH_TOPIC[Math.floor(Math.random() * GOODBYE_WITH_TOPIC.length)]
-  return template.replace('{topic}', shortenTopic(latestTopic))
-}
+const getGoodbyeQuote = () =>
+  MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]
 
 const MimiChat = () => {
 
@@ -718,16 +701,16 @@ const MimiChat = () => {
     setIsSpeaking(true)   // keep speaking indicator while goodbye plays
     setVadStatus('idle')  // prevent recognition from restarting
 
-    const msg = buildGoodbyeMessage(topicsListRef.current)
+    const msg = getGoodbyeQuote()
     setMimiText(msg)
 
-    // ── Show goodbye screen IMMEDIATELY — no waiting for TTS ─────
+    // Show goodbye screen immediately — TTS plays in background
     setIsSpeaking(false)
     setShowGoodbye(true)
     stopSessionRef.current && stopSessionRef.current()
-    goodbyeInProgressRef.current = false
+    // NOTE: goodbyeInProgressRef stays true — reset only on next session start
 
-    // Play TTS in background after screen is already showing
+    // Play Mimi's voice for the goodbye quote
     try {
       const token = localStorage.getItem('token')
       const res = await axios.post(API_ENDPOINTS.MIMI_SPEAK, { text: msg },
@@ -742,18 +725,9 @@ const MimiChat = () => {
         audio.onended = cleanup
         audio.onerror = cleanup
         audio.play().catch(cleanup)
-        return
       }
     } catch (err) {
       console.error('[Goodbye TTS]', err)
-    }
-
-    // Fallback: browser speech synthesis
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel()
-      const utter = new SpeechSynthesisUtterance(msg)
-      utter.rate = 0.9
-      window.speechSynthesis.speak(utter)
     }
   }, [])
 
@@ -913,6 +887,7 @@ const MimiChat = () => {
     }
     // Set up echo-cancelled mic for interrupt detection (non-blocking)
     setupMicVAD().catch(() => {})
+    goodbyeInProgressRef.current = false   // reset so next session can detect farewell
     const sid = generateSessionId()
     setSessionId(sid)
     sessionIdRef.current   = sid

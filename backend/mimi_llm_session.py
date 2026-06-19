@@ -819,21 +819,17 @@ class MimiLLMSession:
             # ── Farewell check — skip LLM, play warm goodbye ─────────
             if self._is_farewell(user_text):
                 import random
-                topics = self.topics_discussed
-                if topics:
-                    topic_str = ' '.join(topics[-1].split()[:3])
-                    templates = [
-                        f"Great job learning about {topic_str} today! 🌟 See you next time, superstar!",
-                        f"Wow, you explored {topic_str} today! 🚀 Bye-bye, super learner!",
-                        f"You and {topic_str} make a great team! 🍪 See you next time, superstar!",
-                    ]
-                else:
-                    templates = [
-                        "Bye-bye, super learner! 👋 You did amazing today — See you next time, superstar! 🌟",
-                        "Goodbye, little explorer! 🚀 Every day with you is an adventure — See you next time! 🌟",
-                        "See you later, alligator! 🐊 Keep being curious — See you next time, superstar! 🌟",
-                    ]
-                msg = random.choice(templates)
+                MOTIVATIONAL_QUOTES = [
+                    "You're a star! 🌟 Keep shining bright!",
+                    "Every day you learn something new – that's amazing! 🚀",
+                    "You're growing smarter and smarter! See you next time! 👋",
+                    "Remember, you can do anything you put your mind to! 💪",
+                    "Learning is an adventure, and you're the best explorer! 🗺️",
+                    "You're so curious – that's the best superpower! 🦸",
+                    "Keep asking questions – that's how we learn! ❓",
+                    "You made today awesome! Come back soon! 🎉",
+                ]
+                msg = random.choice(MOTIVATIONAL_QUOTES)
                 self._add_to_history("user", user_text)
                 self._add_to_history("assistant", msg)
                 self.current_text   = msg
