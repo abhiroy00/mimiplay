@@ -413,8 +413,8 @@ const MimiChat = () => {
         let sum = 0
         for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v }
         const rms = Math.sqrt(sum / buf.length)
-        if (rms > 0.06) {
-          if (++voiced >= 4) {                        // ~400ms sustained voice = real speech
+        if (rms > 0.04) {
+          if (++voiced >= 2) {                        // ~200ms sustained voice = real speech
             clearInterval(vadIntervalRef.current)
             if (doInterruptRef.current) doInterruptRef.current()
           }
@@ -672,8 +672,9 @@ const MimiChat = () => {
     }
     isMimiSpeakingRef.current = false
     setIsSpeaking(false)
-    setVadStatus('listening')
-    justInterruptedRef.current = Date.now()   // start 500ms echo-clear window
+    setVadStatus('interrupted')               // flash "Interrupted!" for 400ms
+    justInterruptedRef.current = Date.now()   // start 200ms echo-clear window
+    setTimeout(() => setVadStatus('listening'), 400)
     // If recognition died for any reason (browser killed it), restart it now
     if (!recognitionRef.current && sessionIdRef.current && startVADRef.current) {
       startVADRef.current()
@@ -802,8 +803,8 @@ const MimiChat = () => {
         // ── Discard while Mimi is speaking (echo of her voice) ────────
         if (isMimiSpeakingRef.current) return
 
-        // ── 500ms echo-clear window after VAD interrupt ───────────────
-        if (Date.now() - justInterruptedRef.current < 500) return
+        // ── 200ms echo-clear window after VAD interrupt ───────────────
+        if (Date.now() - justInterruptedRef.current < 200) return
 
         // ── Normal listening ──────────────────────────────────────────
         if (result.isFinal) {
@@ -1057,13 +1058,14 @@ const MimiChat = () => {
         {sessionState === 'running' && (
           <>
             <Motion.div
-              animate={vadStatus === 'user_speaking' ? { scale: [1, 1.1, 1] } : {}}
+              animate={vadStatus === 'user_speaking' || vadStatus === 'interrupted' ? { scale: [1, 1.1, 1] } : {}}
               transition={{ repeat: Infinity, duration: 0.5 }}
               className={`px-5 py-2 rounded-full text-sm font-bold shadow-lg ${
                 vadStatus === 'listening'     ? 'bg-green-100 text-green-700' :
                 vadStatus === 'user_speaking' ? 'bg-red-100 text-red-600 animate-pulse' :
                 vadStatus === 'thinking'      ? 'bg-yellow-100 text-yellow-700' :
                 vadStatus === 'mimi_speaking' ? 'bg-purple-100 text-purple-700' :
+                vadStatus === 'interrupted'   ? 'bg-cyan-100 text-cyan-700 animate-pulse' :
                 'bg-gray-100 text-gray-500'
               }`}
             >
@@ -1071,6 +1073,7 @@ const MimiChat = () => {
               {vadStatus === 'user_speaking' && '🔴 Speaking...'}
               {vadStatus === 'thinking'      && '⏳ Thinking...'}
               {vadStatus === 'mimi_speaking' && '🔊 Mimi Speaking...'}
+              {vadStatus === 'interrupted'   && '⚡ Got it!'}
               {vadStatus === 'idle'          && '⚪ Starting...'}
             </Motion.div>
             <Motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
