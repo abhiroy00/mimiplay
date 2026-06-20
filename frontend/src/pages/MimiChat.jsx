@@ -672,11 +672,16 @@ const MimiChat = () => {
     }
     isMimiSpeakingRef.current = false
     setIsSpeaking(false)
-    setVadStatus('interrupted')               // flash "Interrupted!" for 400ms
+    setVadStatus('interrupted')               // flash "Got it!" for 400ms
     justInterruptedRef.current = Date.now()   // start 200ms echo-clear window
     setTimeout(() => setVadStatus('listening'), 400)
-    // If recognition died for any reason (browser killed it), restart it now
-    if (!recognitionRef.current && sessionIdRef.current && startVADRef.current) {
+    // Always kill the old recognition (it was discarding results while Mimi spoke)
+    // and start a fresh one so the child's interrupting voice is captured.
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop() } catch {}
+      recognitionRef.current = null
+    }
+    if (sessionIdRef.current && startVADRef.current) {
       startVADRef.current()
     }
   }, [])
