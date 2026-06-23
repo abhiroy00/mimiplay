@@ -9,6 +9,8 @@ axios.interceptors.request.use((config) => {
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`
   }
+  // Bypass ngrok browser interstitial page (blocks CORS on free ngrok domains)
+  config.headers['ngrok-skip-browser-warning'] = 'true'
   return config
 })
 
