@@ -206,10 +206,8 @@ import { motion as Motion, AnimatePresence } from 'framer-motion'
 import { API_ENDPOINTS } from '../config'
 import GoodbyeScreen from '../components/mimi/screens/GoodbyeScreen'
 
-import bgImage          from '../assets/images/mimi/bg.jpg'
-import mimiIdleVideo    from '../assets/images/mimi/mimiidell_nobg.webm'
-import mimiWaveVideo    from '../assets/images/mimi/mimiwavehand_nobg.webm'
-import mimiReadingVideo from '../assets/images/mimi/mimiidell_nobg.webm'
+import bgImage from '../assets/images/mimi/bg.jpg'
+import MimiCharacter from '../components/mimi/MimiCharacter'
 
 const MOTIVATIONAL_QUOTES = [
   "You're a star! 🌟 Keep shining bright!",
@@ -1009,12 +1007,6 @@ const MimiChat = () => {
     }
   }, [stopWebcam])
 
-  // ── Mimi ka sahi video choose karo ───────────────────────────
-  const getMimiVideo = () => {
-    if (sessionState !== 'running') return mimiIdleVideo
-    if (isSpeaking)                 return mimiReadingVideo  // ← bol rahi hai = reading book
-    return mimiWaveVideo                                     // ← sun rahi hai = wave
-  }
 
   return (
     <div className="relative min-h-screen w-full bg-cover bg-center overflow-hidden"
@@ -1236,27 +1228,56 @@ const MimiChat = () => {
       {/* ── Layout: Mimi left, Response right ─────────────────── */}
       <div className="absolute inset-0 flex items-end">
 
-        {/* ── Mimi Video — LEFT ───────────────────────────────── */}
-        <div className="relative z-20 flex-shrink-0" style={{ width: '420px', height: '520px' }}>
-          <video
-            key={getMimiVideo()} // ← video change hone par reload ho
-            src={getMimiVideo()}
-            autoPlay loop muted playsInline
-            className="w-full h-full object-contain" />
-        </div>
+        {/* ── Mimi Character — LEFT ───────────────────────────── */}
+        <MimiCharacter
+          vadStatus={vadStatus}
+          isSpeaking={isSpeaking}
+          sessionState={sessionState}
+        />
 
         {/* ── Response Box — RIGHT ────────────────────────────── */}
         <div className="flex-1 flex flex-col justify-center z-20 pr-6 pb-8 pl-4"
           style={{ maxHeight: '90vh', overflowY: 'auto' }}>
-          <AnimatePresence>
+          <AnimatePresence mode="wait">
             {mimiText && sessionState === 'running' && (
               <Motion.div
                 key={mimiText}
-                initial={{ opacity: 0, x: 40, scale: 0.98 }}
+                initial={{ opacity: 0, x: 50, scale: 0.95 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 40 }}
-                transition={{ duration: 0.35 }}
-                className="bg-white rounded-2xl p-6 shadow-2xl">
+                exit={{ opacity: 0, x: 30, scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                className="bg-white rounded-3xl shadow-2xl overflow-hidden"
+                style={{ border: '3px solid', borderColor: isSpeaking ? '#a78bfa' : '#e0e7ff' }}
+              >
+                {/* Mimi label strip */}
+                <div className={`flex items-center gap-2 px-5 py-2.5 ${isSpeaking ? 'bg-purple-100' : 'bg-indigo-50'}`}>
+                  <Motion.div
+                    className="text-xl"
+                    animate={isSpeaking ? { scale: [1, 1.3, 1] } : {}}
+                    transition={{ duration: 0.5, repeat: Infinity }}
+                  >
+                    {isSpeaking ? '🔊' : '💬'}
+                  </Motion.div>
+                  <span className="text-sm font-black text-purple-700 tracking-wide">
+                    {isSpeaking ? 'Mimi is talking...' : 'Mimi says'}
+                  </span>
+                  {isTyping && (
+                    <Motion.div
+                      className="ml-auto flex gap-1"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      {[0, 1, 2].map(i => (
+                        <Motion.div
+                          key={i}
+                          className="w-2 h-2 bg-purple-400 rounded-full"
+                          animate={{ y: [0, -5, 0] }}
+                          transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15 }}
+                        />
+                      ))}
+                    </Motion.div>
+                  )}
+                </div>
 
                 <p className="text-2xl font-semibold text-gray-800 min-h-[64px]">
                   {displayedText}
@@ -1296,6 +1317,51 @@ const MimiChat = () => {
                       className="w-full h-52 rounded-2xl shadow-lg" />
                   </Motion.div>
                 )}
+                {/* Text */}
+                <div className="px-6 py-5">
+                  <p className="text-2xl font-semibold text-gray-800 leading-relaxed min-h-[64px]">
+                    {displayedText}
+                    {isTyping && (
+                      <Motion.span
+                        className="ml-1 inline-block w-0.5 h-6 bg-purple-400 rounded align-middle"
+                        animate={{ opacity: [1, 0, 1] }}
+                        transition={{ duration: 0.7, repeat: Infinity }}
+                      />
+                    )}
+                  </p>
+
+                  {imageUrl && (
+                    <Motion.div
+                      className="mt-4"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.2 }}
+                    >
+                      <img src={imageUrl} alt="mimi result"
+                        referrerPolicy="no-referrer"
+                        className="max-h-52 mx-auto rounded-2xl shadow-md" />
+                    </Motion.div>
+                  )}
+
+                  {ytVideo && (
+                    <div className="mt-4">
+                      {!playing ? (
+                        <Motion.button
+                          whileHover={{ scale: 1.04 }}
+                          whileTap={{ scale: 0.96 }}
+                          onClick={() => setPlaying(true)}
+                          className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-2xl font-bold shadow-lg hover:shadow-xl">
+                          ▶ Play Video
+                        </Motion.button>
+                      ) : (
+                        <iframe
+                          src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1`}
+                          title="YouTube video" allow="autoplay; encrypted-media"
+                          className="w-full h-52 rounded-2xl" />
+                      )}
+                    </div>
+                  )}
+                </div>
               </Motion.div>
             )}
           </AnimatePresence>
