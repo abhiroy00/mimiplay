@@ -234,8 +234,17 @@ const MimiChat = () => {
   const [imageUrl,      setImageUrl]      = useState(null)
   const [ytVideo,       setYtVideo]       = useState(null)
   const [playing,       setPlaying]       = useState(false)
-  // Auto-show video as soon as backend returns it — no manual click needed
-  useEffect(() => { if (ytVideo) setPlaying(true) }, [ytVideo])
+
+  // Image → then Video sequence:
+  // If response has both image and video → show image first, auto-play video after 5s.
+  // If only video → play immediately.
+  useEffect(() => {
+    setPlaying(false)
+    if (!ytVideo) return
+    const delay = imageUrl ? 5000 : 500
+    const t = setTimeout(() => setPlaying(true), delay)
+    return () => clearTimeout(t)
+  }, [ytVideo, imageUrl])
   const [displayedText, setDisplayedText] = useState('')
   const [isTyping,      setIsTyping]      = useState(false)
   const [isSpeaking,    setIsSpeaking]    = useState(false) // ← Mimi bol rahi hai?
@@ -987,7 +996,7 @@ const MimiChat = () => {
         setIsTyping(false)
         setIsSpeaking(false) // typing khatam = speaking khatam
       }
-    }, 30)
+    }, 15)
     return () => clearInterval(t)
   }, [mimiText])
 
@@ -1254,28 +1263,38 @@ const MimiChat = () => {
                   {isTyping && <span className="ml-1 text-purple-500 animate-pulse">|</span>}
                 </p>
 
-                {imageUrl && (
-                  <div className="mt-4">
+                {/* Image — shown immediately */}
+                {imageUrl && !playing && (
+                  <Motion.div
+                    className="mt-4"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.4 }}>
                     <img src={imageUrl} alt="mimi result"
                       referrerPolicy="no-referrer"
-                      className="max-h-52 mx-auto rounded-xl shadow-md" />
-                  </div>
+                      className="w-full max-h-56 object-cover mx-auto rounded-2xl shadow-lg" />
+                    {ytVideo && (
+                      <p className="text-center text-xs text-purple-500 font-semibold mt-2 animate-pulse">
+                        🎬 Video loading soon...
+                      </p>
+                    )}
+                  </Motion.div>
                 )}
 
-                {ytVideo && (
-                  <div className="mt-4">
-                    {!playing ? (
-                      <button onClick={() => setPlaying(true)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">
-                        ▶ Play Video
-                      </button>
-                    ) : (
-                      <iframe
-                        src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1`}
-                        title="YouTube video" allow="autoplay; encrypted-media"
-                        className="w-full h-52 rounded-xl" />
-                    )}
-                  </div>
+                {/* Video — auto-plays after image has been shown for 5s */}
+                {ytVideo && playing && (
+                  <Motion.div
+                    className="mt-4"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4 }}>
+                    <iframe
+                      src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1`}
+                      title="YouTube video"
+                      allow="autoplay; encrypted-media; fullscreen"
+                      allowFullScreen
+                      className="w-full h-52 rounded-2xl shadow-lg" />
+                  </Motion.div>
                 )}
               </Motion.div>
             )}
