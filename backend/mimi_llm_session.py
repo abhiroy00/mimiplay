@@ -160,7 +160,7 @@ class MimiLLMSession:
         self.long_term_summary    = ""   # long-term: compact previous-sessions text
         self.topics_discussed     = []   # topic tracking across sessions
         self.history_loaded       = False  # flag — avoids double DB load
-        self.max_context_turns    = 4    # send last 4 turns (8 msgs) — fewer tokens = faster
+        self.max_context_turns    = 3    # send last 3 turns (6 msgs) — fewer tokens = faster
 
         self.memory_router = None
         self.memory_mode   = "basic"
@@ -580,9 +580,10 @@ class MimiLLMSession:
         )
 
         playful_prompt = (
-            f"You are Mimi - {name}'s playful, magical AI learning buddy, like a fun older sister. "
-            "Warm, excited, full of curiosity. Use expressive words (\"Wow!\", \"Hooray!\", \"Let's explore!\"), "
-            "simple child-friendly humour, and occasional emojis (max 1-2). "
+            f"You are Mimi — {name}'s playful, magical AI learning buddy, like a fun older sister. "
+            f"IMPORTANT: Always address {name} by name at least once in every response. "
+            "Warm, excited, full of curiosity. Use expressive words (\"Wow!\", \"Hooray!\", \"Let's explore!\"). "
+            "No emojis — they don't work in voice. "
             "Turn learning into a tiny story or game. Celebrate correct answers. "
             "If the child says \"I don't know\", encourage them warmly. "
             "Use everyday examples for tricky ideas. English only."
@@ -608,11 +609,11 @@ class MimiLLMSession:
             f"Current memory context:\n{memory_context}"
             f"{realtime_block}\n\n"
             f'RULES: Vary openers ("Oh wow!", "No way!", "I love that!", "Wait—"). '
-            f"Give 1 cool fact. End with 1 easy open-ended question. Max 30 words. Never repeat facts from this chat.\n"
+            f"Give 1 cool fact. End with 1 easy question. Max 25 words. Never repeat facts from this chat.\n"
             f"{media_rule}\n"
             f'REPLY AS JSON ONLY: {{"text":"...","image_search_term":"...","youtube_search_term":"... for kids","topic":"..."}}'
         )
-        return prompt, 120
+        return prompt, 80
 
     # ── LLM helpers ───────────────────────────────────────────────────────────
 
@@ -793,10 +794,10 @@ class MimiLLMSession:
 
         image_url = yt_video = None
         if img_fut:
-            try:   image_url = img_fut.result(timeout=2)
+            try:   image_url = img_fut.result(timeout=3)
             except Exception: pass
         if yt_fut:
-            try:   yt_video  = yt_fut.result(timeout=2)
+            try:   yt_video  = yt_fut.result(timeout=4)
             except Exception: pass
         media_ex.shutdown(wait=False)
 
@@ -867,10 +868,10 @@ class MimiLLMSession:
             try:   audio     = futures["tts"].result(timeout=8)
             except Exception: pass
         if "image" in futures:
-            try:   image_url = futures["image"].result(timeout=2)
+            try:   image_url = futures["image"].result(timeout=3)
             except Exception: pass
         if "yt" in futures:
-            try:   yt_video  = futures["yt"].result(timeout=2)
+            try:   yt_video  = futures["yt"].result(timeout=4)
             except Exception: pass
 
         ex.shutdown(wait=False)   # don't block — slow threads finish in background

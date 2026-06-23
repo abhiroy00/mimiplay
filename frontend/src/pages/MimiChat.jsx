@@ -234,6 +234,8 @@ const MimiChat = () => {
   const [imageUrl,      setImageUrl]      = useState(null)
   const [ytVideo,       setYtVideo]       = useState(null)
   const [playing,       setPlaying]       = useState(false)
+  // Auto-show video as soon as backend returns it — no manual click needed
+  useEffect(() => { if (ytVideo) setPlaying(true) }, [ytVideo])
   const [displayedText, setDisplayedText] = useState('')
   const [isTyping,      setIsTyping]      = useState(false)
   const [isSpeaking,    setIsSpeaking]    = useState(false) // ← Mimi bol rahi hai?
@@ -818,7 +820,7 @@ const MimiChat = () => {
           pendingText = transcript
           setVadStatus('user_speaking')
           clearTimeout(silenceTimer)
-          silenceTimer = setTimeout(() => _sendNow(pendingText), 500)
+          silenceTimer = setTimeout(() => _sendNow(pendingText), 1500)
         }
       }
     }
