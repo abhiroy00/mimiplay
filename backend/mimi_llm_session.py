@@ -94,6 +94,26 @@ class MimiLLMSession:
         "what subjects", "recap our topics",
     ]
 
+    RECALL_PHRASES = [
+        # English
+        "repeat that", "say that again", "say it again", "tell me again",
+        "what did i ask", "what was my question", "previous question",
+        "my last question", "what did i just ask", "what was the last question",
+        "repeat your answer", "what did you say", "tell me what i asked",
+        "can you repeat", "say again", "what did i ask about",
+        "remind me what i asked", "what was my last question",
+        # Hindi / Hinglish
+        "phir bolo", "phir se bolo", "dobara bolo", "dobara batao",
+        "phir batao", "kya pucha tha", "pehle kya pucha", "repeat karo",
+    ]
+
+    # Stop-words to strip when extracting a topic keyword from recall queries
+    _RECALL_STOP = {
+        "what", "did", "i", "ask", "about", "tell", "me", "again",
+        "repeat", "that", "my", "last", "question", "say", "it", "the",
+        "a", "an", "you", "please", "can", "could", "would", "know",
+    }
+
     WEATHER_PHRASES = ["weather", "temperature", "forecast", "raining", "humid", "snowing"]
     # Weak signal words — ambiguous on their own ("hot dog"), only count as
     # weather intent when paired with a weather-ish question pattern below.
@@ -316,6 +336,79 @@ class MimiLLMSession:
                 "Which one do you want to dive deeper into?"
             )
         return {"text": text, "topics_list": unique, "image_url": None, "yt_video": None, "topic": ""}
+
+    # ── Recall / Repeat Methods ──────────────────────────────────────────────
+
+    def _is_recall_request(self, text: str) -> bool:
+        t = text.lower().strip()
+        return any(phrase in t for phrase in self.RECALL_PHRASES)
+
+    def _extract_recall_topic(self, text: str):
+        """Return a keyword from queries like 'what did I ask about planets' → 'planets'."""
+        words = [w.strip("?!.,") for w in text.lower().split()]
+        keywords = [w for w in words if w and w not in self._RECALL_STOP and len(w) > 2]
+        return keywords[0] if keywords else None
+
+    def _get_last_qa(self):
+        """Return (question, answer) of the most recent exchange in this session."""
+        history = self.conversation_history
+        # Walk backward to find last assistant message, then the user message before it
+        for i in range(len(history) - 1, 0, -1):
+            if history[i]["role"] == "assistant":
+                # find the user turn just before it
+                for j in range(i - 1, -1, -1):
+                    if history[j]["role"] == "user":
+                        return history[j]["content"], history[i]["content"]
+        return None, None
+
+    def _search_qa_by_topic(self, keyword: str):
+        """
+        Search current session history first, then past MongoDB sessions, for a
+        user question containing `keyword`.  Returns (question, answer) or (None, None).
+        """
+        # 1. Current session (in-memory, instant)
+        for i, msg in enumerate(self.conversation_history):
+            if msg["role"] == "user" and keyword in msg["content"].lower():
+                # get the assistant reply that follows
+                for j in range(i + 1, len(self.conversation_history)):
+                    if self.conversation_history[j]["role"] == "assistant":
+                        return msg["content"], self.conversation_history[j]["content"]
+
+        # 2. Past sessions (MongoDB)
+        if self.student_name:
+            try:
+                past = list(_mimi_chats.find(
+                    {
+                        "student_name": {"$regex": f"^{self.student_name}$", "$options": "i"},
+                        "session_id":   {"$ne": self.session_id},
+                        "messages.question": {"$regex": keyword, "$options": "i"},
+                    },
+                    sort=[("updated_at", -1)],
+                    limit=3,
+                ))
+                for doc in past:
+                    for msg in doc.get("messages", []):
+                        q = msg.get("question", "")
+                        a = msg.get("answer", "")
+                        if q and a and keyword in q.lower():
+                            return q, a
+            except Exception as e:
+                logger.error("[Recall] MongoDB search failed: %s", e)
+
+        return None, None
+
+    def _build_recall_response(self, question: str, answer: str) -> str:
+        import random
+        name = self.student_name or "friend"
+        short_q = question[:80] + ("…" if len(question) > 80 else "")
+        short_a = answer[:150] + ("…" if len(answer) > 150 else "")
+        templates = [
+            f"Ooh, you have a great memory, {name}! 🧠 You asked me: \"{short_q}\" — and I said: \"{short_a}\" Want to explore more?",
+            f"Sure! 😊 You asked: \"{short_q}\" — here's what I told you: \"{short_a}\" Isn't that cool?",
+            f"I remember! 🌟 You were curious about: \"{short_q}\" — and I said: \"{short_a}\" Shall we dive deeper?",
+            f"Great question to revisit, {name}! ✨ You asked: \"{short_q}\" — my answer was: \"{short_a}\"",
+        ]
+        return random.choice(templates)
 
     def get_memory_stats(self):
         """Get statistics about current conversation memory."""
@@ -845,9 +938,35 @@ class MimiLLMSession:
                 self._add_to_history("assistant", result.get("text", ""))
                 self.current_text   = result.get("text", "")
                 self.current_action = "done"
-                result["audio"]     = None   # caller will do TTS separately if needed
+                result["audio"]     = None
                 logger.info(f"[Topics] Topic list returned — {len(result.get('topics_list', []))} topics")
                 return result
+
+            # ── Recall / Repeat shortcut — skip LLM entirely ─────────
+            if self._is_recall_request(user_text):
+                topic_kw = self._extract_recall_topic(user_text)
+                if topic_kw and len(topic_kw) > 3:
+                    # "what did I ask about planets" → search by topic
+                    q, a = self._search_qa_by_topic(topic_kw)
+                else:
+                    # "repeat that" / "say again" → most recent exchange
+                    q, a = self._get_last_qa()
+
+                if q and a:
+                    msg = self._build_recall_response(q, a)
+                else:
+                    name = self.student_name or "friend"
+                    msg = (
+                        f"Hmm, I can't find that question yet, {name}! 🤔 "
+                        "We might not have talked about it yet — ask me anything and I'll remember it! 😊"
+                    )
+
+                self._add_to_history("user", user_text)
+                self._add_to_history("assistant", msg)
+                self.current_text   = msg
+                self.current_action = "done"
+                logger.info("[Recall] Handled recall request — topic_kw=%s found=%s", topic_kw, bool(q))
+                return {"text": msg, "image_url": None, "yt_video": None, "topic": "", "audio": None}
 
             # ── Real-time data (weather/date-time/news) for THIS turn only ──
             self._realtime_block = self._build_realtime_block(user_text)
