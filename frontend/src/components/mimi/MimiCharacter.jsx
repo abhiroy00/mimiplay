@@ -112,6 +112,12 @@ const Sparkles = ({ emojis, trigger }) => (
 )
 
 
+// All video sources in one array for preloading
+const ALL_VIDEOS = [
+  mimiIdleVideo, mimiWaveVideo, mimiThinkingVideo,
+  mimiTalkingVideo, mimiExcitedVideo, mimiCelebratingVideo,
+]
+
 // ── Main component ────────────────────────────────────────────────────────────
 const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 'idle' }) => {
   const videoSrc = getVideo(vadStatus, sessionState, isSpeaking)
@@ -120,6 +126,13 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
 
   return (
     <div className="relative z-20 flex-shrink-0 select-none" style={{ width: '420px', height: '520px' }}>
+
+      {/* ── Hidden preloader: forces browser to download all videos on mount ── */}
+      <div style={{ display: 'none' }} aria-hidden="true">
+        {ALL_VIDEOS.map(src => (
+          <video key={src} src={src} preload="auto" muted playsInline />
+        ))}
+      </div>
 
       {/* ── Ambient glow ── */}
       <motion.div
@@ -172,19 +185,25 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
           {vadStatus === 'mimi_speaking' && <SoundBars key="bars" />}
         </AnimatePresence>
 
-        {/* Idle sparkle (occasional) */}
-        <AnimatePresence>
-          {(sessionState !== 'running' || vadStatus === 'idle') && (
-            <motion.div
-              key="idle-star"
-              className="absolute top-6 left-8 text-3xl pointer-events-none"
-              animate={{ scale: [0, 1.1, 1, 0], opacity: [0, 1, 1, 0] }}
-              transition={{ duration: 2, repeat: Infinity, repeatDelay: 4 }}
-            >
-              ✨
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Idle sparkles scattered around the character */}
+        {(sessionState !== 'running' || vadStatus === 'idle') && [
+          { emoji: '✨', top: '8%',  left: '10%', delay: 0,   size: 'text-3xl' },
+          { emoji: '⭐', top: '15%', left: '82%', delay: 1.2, size: 'text-2xl' },
+          { emoji: '✨', top: '55%', left: '88%', delay: 2.4, size: 'text-xl'  },
+          { emoji: '💫', top: '70%', left: '5%',  delay: 0.8, size: 'text-2xl' },
+          { emoji: '✨', top: '35%', left: '92%', delay: 3.0, size: 'text-lg'  },
+          { emoji: '⭐', top: '80%', left: '78%', delay: 1.8, size: 'text-xl'  },
+        ].map((s, i) => (
+          <motion.div
+            key={`idle-spark-${i}`}
+            className={`absolute ${s.size} pointer-events-none select-none`}
+            style={{ top: s.top, left: s.left }}
+            animate={{ scale: [0, 1.2, 1, 0], opacity: [0, 1, 1, 0] }}
+            transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 3, delay: s.delay, ease: 'easeInOut' }}
+          >
+            {s.emoji}
+          </motion.div>
+        ))}
       </motion.div>
     </div>
   )
