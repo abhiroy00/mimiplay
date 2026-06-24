@@ -1,22 +1,15 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// ── Available videos (transparent background .webm) ──────────────────────────
-import mimiIdleVideo from '../../assets/images/mimi/mimiidell_nobg.webm'
-import mimiWaveVideo from '../../assets/images/mimi/mimiwavehand_nobg.webm'
-// Add these imports once you create the files:
-// import mimiThinkingVideo    from '../../assets/images/mimi/mimithinking_nobg.webm'
-// import mimiTalkingVideo     from '../../assets/images/mimi/mimitalking_nobg.webm'
-// import mimiListeningVideo   from '../../assets/images/mimi/mimilistening_nobg.webm'
-// import mimiExcitedVideo     from '../../assets/images/mimi/mimiexcited_nobg.webm'
-// import mimiCelebratingVideo from '../../assets/images/mimi/mimicelebrating_nobg.webm'
-
-// ── Fallbacks until new videos are ready ─────────────────────────────────────
-const mimiThinkingVideo    = mimiIdleVideo
-const mimiTalkingVideo     = mimiIdleVideo
-const mimiListeningVideo   = mimiWaveVideo
-const mimiExcitedVideo     = mimiWaveVideo
-const mimiCelebratingVideo = mimiWaveVideo
+// ── Videos (transparent background .webm) ────────────────────────────────────
+import mimiIdleVideo        from '../../assets/images/mimi/mimiidell_nobg.webm'
+import mimiWaveVideo        from '../../assets/images/mimi/mimiwavehand_nobg.webm'
+import mimiThinkingVideo    from '../../assets/images/mimi/mimithinking_nobg.webm'
+import mimiTalkingVideo     from '../../assets/images/mimi/mimitalking_nobg.webm'
+import mimiExcitedVideo     from '../../assets/images/mimi/mimiexcited_nobg.webm'
+import mimiCelebratingVideo from '../../assets/images/mimi/mimicelebrating_nobg.webm'
+// mimilistening_nobg.webm not yet available — falls back to wave
+const mimiListeningVideo = mimiWaveVideo
 
 // ── State → video map ─────────────────────────────────────────────────────────
 const VIDEO_MAP = {
@@ -26,6 +19,7 @@ const VIDEO_MAP = {
   thinking:      mimiThinkingVideo,
   mimi_speaking: mimiTalkingVideo,
   interrupted:   mimiExcitedVideo,
+  celebrating:   mimiCelebratingVideo,
 }
 
 const getVideo = (vadStatus, sessionState, isSpeaking) => {
@@ -41,6 +35,7 @@ const GLOW = {
   thinking:      'rgba(250,204,21,0.40)',
   mimi_speaking: 'rgba(167,139,250,0.50)',
   interrupted:   'rgba(56,189,248,0.55)',
+  celebrating:   'rgba(251,191,36,0.60)',
 }
 
 // ── Subtle body pulse per state (no vertical bounce) ─────────────────────────
@@ -51,6 +46,7 @@ const BODY = {
   thinking:      { rotate: [0, -2, 2, 0], transition: { duration: 4,   repeat: Infinity, ease: 'easeInOut' } },
   mimi_speaking: { scale: [1, 1.02,  1],  transition: { duration: 0.9, repeat: Infinity, ease: 'easeInOut' } },
   interrupted:   { scale: [1, 1.08,  1],  transition: { duration: 0.4, ease: 'easeOut' } },
+  celebrating:   { scale: [1, 1.05,  1],  transition: { duration: 0.6, repeat: Infinity, ease: 'easeInOut' } },
 }
 
 // ── Thinking bubble ───────────────────────────────────────────────────────────
@@ -137,6 +133,7 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
       {/* ── Sparkles ── */}
       <Sparkles emojis={['⭐', '✨', '💫']} trigger={vadStatus === 'user_speaking'} />
       <Sparkles emojis={['🎉', '🌟', '✨']} trigger={vadStatus === 'mimi_speaking' && isSpeaking} />
+      <Sparkles emojis={['🎊', '⭐', '🎉', '💫']} trigger={vadStatus === 'celebrating'} />
 
       {/* ── Character body with subtle pulse ── */}
       <motion.div className="w-full h-full relative" animate={bodyAnim}>
@@ -177,7 +174,7 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
 
         {/* Idle sparkle (occasional) */}
         <AnimatePresence>
-          {(!sessionState === 'running' || vadStatus === 'idle') && (
+          {(sessionState !== 'running' || vadStatus === 'idle') && (
             <motion.div
               key="idle-star"
               className="absolute top-6 left-8 text-3xl pointer-events-none"

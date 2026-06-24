@@ -406,8 +406,9 @@ const MimiChat = () => {
     clearInterval(vadIntervalRef.current)
 
     isMimiSpeakingRef.current = true
-    setVadStatus('mimi_speaking')
+    setVadStatus('celebrating')
     setIsSpeaking(true)
+    setTimeout(() => setVadStatus('mimi_speaking'), 700)
 
     // ── Audio-based VAD: detect user speaking via echo-cancelled mic ──
     // Uses AnalyserNode (set up with echoCancellation) so we DON'T pick up
