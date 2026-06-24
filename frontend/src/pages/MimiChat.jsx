@@ -1248,14 +1248,14 @@ const MimiChat = () => {
         {/* ── Response Box — RIGHT ────────────────────────────── */}
         <div className="flex-1 flex flex-col justify-center z-20 pr-6 pb-8 pl-4"
           style={{ maxHeight: '90vh', overflowY: 'auto' }}>
-          <AnimatePresence>
+          <AnimatePresence mode="wait">
             {mimiText && sessionState === 'running' && (
               <Motion.div
-                key={mimiText}
+                key="mimi-response"
                 initial={{ opacity: 0, x: 40, scale: 0.98 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{ opacity: 0, x: 40 }}
-                transition={{ duration: 0.35 }}
+                transition={{ duration: 0.25 }}
                 className="bg-white rounded-2xl p-6 shadow-2xl">
 
                 <p className="text-2xl font-semibold text-gray-800 min-h-[64px]">
