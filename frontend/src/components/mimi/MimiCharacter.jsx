@@ -134,14 +134,6 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
         ))}
       </div>
 
-      {/* ── Ambient glow ── */}
-      <motion.div
-        className="absolute inset-8 rounded-full pointer-events-none"
-        animate={{
-          boxShadow: [`0 0 50px 25px ${glow}`, `0 0 90px 50px ${glow}`, `0 0 50px 25px ${glow}`]
-        }}
-        transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-      />
 
       {/* ── Sparkles ── */}
       <Sparkles emojis={['⭐', '✨', '💫']} trigger={vadStatus === 'user_speaking'} />
