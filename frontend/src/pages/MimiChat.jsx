@@ -206,10 +206,8 @@ import { motion as Motion, AnimatePresence } from 'framer-motion'
 import { API_ENDPOINTS } from '../config'
 import GoodbyeScreen from '../components/mimi/screens/GoodbyeScreen'
 
-import bgImage          from '../assets/images/mimi/bg.jpg'
-import mimiIdleVideo    from '../assets/images/mimi/mimiidell_nobg.webm'
-import mimiWaveVideo    from '../assets/images/mimi/mimiwavehand_nobg.webm'
-import mimiReadingVideo from '../assets/images/mimi/mimiidell_nobg.webm'
+import bgImage from '../assets/images/mimi/bg.jpg'
+import MimiCharacter from '../components/mimi/MimiCharacter'
 
 const MOTIVATIONAL_QUOTES = [
   "You're a star! 🌟 Keep shining bright!",
@@ -1009,12 +1007,6 @@ const MimiChat = () => {
     }
   }, [stopWebcam])
 
-  // ── Mimi ka sahi video choose karo ───────────────────────────
-  const getMimiVideo = () => {
-    if (sessionState !== 'running') return mimiIdleVideo
-    if (isSpeaking)                 return mimiReadingVideo  // ← bol rahi hai = reading book
-    return mimiWaveVideo                                     // ← sun rahi hai = wave
-  }
 
   return (
     <div className="relative min-h-screen w-full bg-cover bg-center overflow-hidden"
@@ -1236,14 +1228,12 @@ const MimiChat = () => {
       {/* ── Layout: Mimi left, Response right ─────────────────── */}
       <div className="absolute inset-0 flex items-end">
 
-        {/* ── Mimi Video — LEFT ───────────────────────────────── */}
-        <div className="relative z-20 flex-shrink-0" style={{ width: '420px', height: '520px' }}>
-          <video
-            key={getMimiVideo()} // ← video change hone par reload ho
-            src={getMimiVideo()}
-            autoPlay loop muted playsInline
-            className="w-full h-full object-contain" />
-        </div>
+        {/* ── Mimi Character — LEFT ───────────────────────────── */}
+        <MimiCharacter
+          vadStatus={vadStatus}
+          isSpeaking={isSpeaking}
+          sessionState={sessionState}
+        />
 
         {/* ── Response Box — RIGHT ────────────────────────────── */}
         <div className="flex-1 flex flex-col justify-center z-20 pr-6 pb-8 pl-4"
@@ -1252,50 +1242,89 @@ const MimiChat = () => {
             {mimiText && sessionState === 'running' && (
               <Motion.div
                 key="mimi-response"
-                initial={{ opacity: 0, x: 40, scale: 0.98 }}
+                initial={{ opacity: 0, x: 50, scale: 0.95 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 40 }}
-                transition={{ duration: 0.25 }}
-                className="bg-white rounded-2xl p-6 shadow-2xl">
-
-                <p className="text-2xl font-semibold text-gray-800 min-h-[64px]">
-                  {displayedText}
-                  {isTyping && <span className="ml-1 text-purple-500 animate-pulse">|</span>}
-                </p>
-
-                {/* Image — shown immediately */}
-                {imageUrl && !playing && (
+                exit={{ opacity: 0, x: 30, scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                className="bg-white rounded-3xl shadow-2xl overflow-hidden"
+                style={{ border: '3px solid', borderColor: isSpeaking ? '#a78bfa' : '#e0e7ff' }}
+              >
+                {/* Mimi label strip */}
+                <div className={`flex items-center gap-2 px-5 py-2.5 ${isSpeaking ? 'bg-purple-100' : 'bg-indigo-50'}`}>
                   <Motion.div
-                    className="mt-4"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.4 }}>
-                    <img src={imageUrl} alt="mimi result"
-                      referrerPolicy="no-referrer"
-                      className="w-full max-h-56 object-cover mx-auto rounded-2xl shadow-lg" />
-                    {ytVideo && (
-                      <p className="text-center text-xs text-purple-500 font-semibold mt-2 animate-pulse">
-                        🎬 Video loading soon...
-                      </p>
+                    className="text-xl"
+                    animate={isSpeaking ? { scale: [1, 1.3, 1] } : {}}
+                    transition={{ duration: 0.5, repeat: Infinity }}
+                  >
+                    {isSpeaking ? '🔊' : '💬'}
+                  </Motion.div>
+                  <span className="text-sm font-black text-purple-700 tracking-wide">
+                    {isSpeaking ? 'Mimi is talking...' : 'Mimi says'}
+                  </span>
+                  {isTyping && (
+                    <Motion.div
+                      className="ml-auto flex gap-1"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      {[0, 1, 2].map(i => (
+                        <Motion.div
+                          key={i}
+                          className="w-2 h-2 bg-purple-400 rounded-full"
+                          animate={{ y: [0, -5, 0] }}
+                          transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15 }}
+                        />
+                      ))}
+                    </Motion.div>
+                  )}
+                </div>
+
+                <div className="px-6 py-5">
+                  <p className="text-2xl font-semibold text-gray-800 leading-relaxed min-h-[64px]">
+                    {displayedText}
+                    {isTyping && (
+                      <Motion.span
+                        className="ml-1 inline-block w-0.5 h-6 bg-purple-400 rounded align-middle"
+                        animate={{ opacity: [1, 0, 1] }}
+                        transition={{ duration: 0.7, repeat: Infinity }}
+                      />
                     )}
-                  </Motion.div>
-                )}
+                  </p>
 
-                {/* Video — auto-plays after image has been shown for 5s */}
-                {ytVideo && playing && (
-                  <Motion.div
-                    className="mt-4"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4 }}>
-                    <iframe
-                      src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1`}
-                      title="YouTube video"
-                      allow="autoplay; encrypted-media; fullscreen"
-                      allowFullScreen
-                      className="w-full h-52 rounded-2xl shadow-lg" />
-                  </Motion.div>
-                )}
+                  {/* Image — shown immediately, hides when video plays */}
+                  {imageUrl && !playing && (
+                    <Motion.div
+                      className="mt-4"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.4 }}>
+                      <img src={imageUrl} alt="mimi result"
+                        referrerPolicy="no-referrer"
+                        className="w-full max-h-56 object-cover mx-auto rounded-2xl shadow-lg" />
+                      {ytVideo && (
+                        <p className="text-center text-xs text-purple-500 font-semibold mt-2 animate-pulse">
+                          🎬 Video loading soon...
+                        </p>
+                      )}
+                    </Motion.div>
+                  )}
+
+                  {/* Video — auto-plays after 5s if image shown, else immediately */}
+                  {ytVideo && playing && (
+                    <Motion.div
+                      className="mt-4"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4 }}>
+                      <iframe
+                        src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1`}
+                        title="YouTube video"
+                        allow="autoplay; encrypted-media; fullscreen"
+                        allowFullScreen
+                        className="w-full h-52 rounded-2xl shadow-lg" />
+                    </Motion.div>
+                  )}
+                </div>
               </Motion.div>
             )}
           </AnimatePresence>
