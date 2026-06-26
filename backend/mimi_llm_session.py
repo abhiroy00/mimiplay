@@ -14,6 +14,7 @@ MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/")
 _mongo_client = MongoClient(MONGO_URI)
 _db = _mongo_client["AlexiDB"]
 _mimi_chats = _db["mimi_chats"]
+_session_summaries = _db["mimi_session_summaries"]
 
 # Advanced memory system (optional - falls back gracefully)
 try:
@@ -174,12 +175,52 @@ class MimiLLMSession:
 
     def _build_long_term_summary(self):
         """
-        LONG-TERM MEMORY: scan last 5 previous sessions and produce a compact
-        text summary instead of raw Q&A pairs.  Token-efficient and clearly
-        labelled so the LLM knows this is *prior* context.
+        LONG-TERM MEMORY: try rich session summaries first (mimi_session_summaries),
+        fall back to extracting topics from mimi_chats if no summaries exist yet.
         """
         if not self.student_name:
             return ""
+
+        # ── RICH PATH: use LLM-generated session summaries ─────────────────
+        try:
+            prev_summaries = list(_session_summaries.find(
+                {
+                    "student_name": {"$regex": f"^{self.student_name}$", "$options": "i"},
+                    "session_id":   {"$ne": self.session_id},
+                },
+                sort=[("created_at", -1)],
+                limit=5,
+            ))
+        except Exception as e:
+            logger.error("[LTM] session_summaries query failed: %s", e)
+            prev_summaries = []
+
+        if prev_summaries:
+            lines = []
+            for s in prev_summaries:
+                date     = s.get("session_date", "recently")
+                summary  = s.get("summary", "")
+                topics   = ", ".join(s.get("topics",    [])[:5])
+                facts    = "; ".join(s.get("key_facts", [])[:3])
+                qs       = s.get("questions", [])[:3]
+                q_text   = "; ".join(f'"{q}"' for q in qs) if qs else ""
+
+                parts = [f"• {date}: {summary}"]
+                if topics:   parts.append(f"Topics: {topics}.")
+                if facts:    parts.append(f"Taught: {facts}.")
+                if q_text:   parts.append(f"Asked: {q_text}.")
+                lines.append(" ".join(parts))
+
+            session_count = len(prev_summaries)
+            header = (
+                f"You've had {session_count} previous session{'s' if session_count > 1 else ''} "
+                f"with {self.student_name}:"
+            )
+            result = header + "\n" + "\n".join(lines)
+            logger.info("[LTM] Rich summaries loaded: %d sessions", session_count)
+            return result
+
+        # ── FALLBACK PATH: extract topics from raw mimi_chats ──────────────
         try:
             prev_docs = list(_mimi_chats.find(
                 {
@@ -192,7 +233,6 @@ class MimiLLMSession:
             if not prev_docs:
                 return ""
 
-            # Collect topics (unique, ordered by most recent first)
             seen_topics: set = set()
             all_topics: list = []
             last_date = prev_docs[0].get("date", "")
@@ -208,11 +248,11 @@ class MimiLLMSession:
                 parts.append(f"Last session: {last_date}")
             if all_topics:
                 parts.append(f"Topics already discussed: {', '.join(all_topics[:15])}")
-            summary = " | ".join(parts)
-            logger.info("[LTM] Summary built: %s", summary[:120])
-            return summary
+            result = " | ".join(parts)
+            logger.info("[LTM] Fallback summary built: %s", result[:120])
+            return result
         except Exception as e:
-            logger.error("[LTM] Failed: %s", e)
+            logger.error("[LTM] Fallback failed: %s", e)
             return ""
 
     def load_history(self):
@@ -410,6 +450,100 @@ class MimiLLMSession:
         ]
         return random.choice(templates)
 
+    def _generate_and_save_summary(self, history_snapshot: list):
+        """
+        Generate a rich session summary via LLM and store it in MongoDB.
+        Called in a daemon background thread after farewell — never blocks a response.
+        Requires at least 3 user turns to be worth summarising.
+        """
+        user_turns = [m for m in history_snapshot if m["role"] == "user"]
+        if len(user_turns) < 3 or not self.student_name:
+            return
+
+        # Build compact conversation text (cap at 40 turns ≈ ~1500 tokens)
+        lines = []
+        for m in history_snapshot[:40]:
+            speaker = self.student_name if m["role"] == "user" else "Mimi"
+            lines.append(f"{speaker}: {m['content']}")
+        conv_text = "\n".join(lines)
+
+        summary_prompt = (
+            f"Below is a learning session between a child named {self.student_name} and "
+            f"an AI tutor called Mimi. Summarise it as JSON with these exact keys:\n"
+            f"  topics    – list of 3-5 main subjects discussed (short phrases, e.g. 'solar system')\n"
+            f"  questions – list of up to 5 interesting questions {self.student_name} asked (verbatim or paraphrased)\n"
+            f"  key_facts – list of up to 5 short facts or things Mimi taught\n"
+            f"  summary   – one sentence describing the overall session\n\n"
+            f"Return ONLY valid JSON, no extra text.\n\n"
+            f"CONVERSATION:\n{conv_text}"
+        )
+
+        data = None
+        # Try OpenAI first, Anthropic as fallback
+        if self.openai_key and _openai_sdk:
+            try:
+                client = _get_openai_singleton(self.openai_key)
+                if client:
+                    resp = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": "You summarise children's learning sessions as JSON."},
+                            {"role": "user",   "content": summary_prompt},
+                        ],
+                        temperature=0.3,
+                        max_tokens=280,
+                    )
+                    raw = resp.choices[0].message.content or ""
+                    start, end = raw.find("{"), raw.rfind("}")
+                    if start != -1 and end > start:
+                        data = json.loads(raw[start:end + 1])
+            except Exception as e:
+                logger.warning("[Summary] OpenAI failed: %s", e)
+
+        if not data and self.anthropic_key and _anthropic_sdk:
+            try:
+                client = _get_anthropic_singleton(self.anthropic_key)
+                if client:
+                    resp = client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        system="You summarise children's learning sessions as JSON.",
+                        messages=[{"role": "user", "content": summary_prompt}],
+                        max_tokens=280,
+                    )
+                    raw = resp.content[0].text or ""
+                    start, end = raw.find("{"), raw.rfind("}")
+                    if start != -1 and end > start:
+                        data = json.loads(raw[start:end + 1])
+            except Exception as e:
+                logger.warning("[Summary] Anthropic failed: %s", e)
+
+        # Fallback: build summary from existing topics_discussed if LLM failed
+        if not data:
+            data = {
+                "topics":    self.topics_discussed[:5],
+                "questions": [m["content"][:100] for m in user_turns[:5]],
+                "key_facts": [],
+                "summary":   f"Session with {self.student_name} covering {', '.join(self.topics_discussed[:3]) or 'various topics'}.",
+            }
+
+        try:
+            now = datetime.now(timezone.utc)
+            _session_summaries.insert_one({
+                "student_name":   self.student_name,
+                "session_id":     self.session_id,
+                "topics":         data.get("topics", []),
+                "questions":      data.get("questions", []),
+                "key_facts":      data.get("key_facts", []),
+                "summary":        data.get("summary", ""),
+                "msg_count":      len(user_turns),
+                "session_date":   now.strftime("%B %d, %Y"),
+                "created_at":     now.isoformat(),
+            })
+            logger.info("[Summary] Saved for %s session %s — topics: %s",
+                        self.student_name, self.session_id, data.get("topics"))
+        except Exception as e:
+            logger.error("[Summary] MongoDB save failed: %s", e)
+
     def get_memory_stats(self):
         """Get statistics about current conversation memory."""
         return {
@@ -551,32 +685,39 @@ class MimiLLMSession:
 
     def get_memory_context(self) -> str:
         """
-        Compact text summary of all memory tiers, for injection into the system prompt:
-          - long-term summary (past sessions, from MongoDB)
-          - topics already discussed (across past + current session)
-          - working memory (last few turns of THIS session)
+        Memory context injected into the system prompt each turn.
+        Working memory (this session's turns) is excluded — those are sent as
+        explicit user/assistant messages by _build_messages_with_history().
         """
-        # NOTE: working memory (recent turns of THIS session) is intentionally
-        # excluded here — _build_messages_with_history() already sends those
-        # turns as separate user/assistant messages, so repeating them here
-        # would double the tokens for no benefit.
         parts = []
-        if self.long_term_summary:
-            parts.append(f"Past sessions: {self.long_term_summary}")
-        if self.topics_discussed:
-            parts.append(f"Topics already discussed: {', '.join(self.topics_discussed[:15])}")
 
-        return "\n".join(parts) if parts else "No prior memory yet — this is a fresh start."
+        if self.long_term_summary:
+            parts.append(
+                f"=== PAST SESSIONS ===\n"
+                f"{self.long_term_summary}\n"
+                f"Use this to reference what {self.student_name or 'the child'} has already learned. "
+                f"Say things like \"Last time we talked about...\" or \"You asked about...\" or "
+                f"\"Remember when you discovered...\" Make them feel remembered and proud. "
+                f"==="
+            )
+        elif self.topics_discussed:
+            parts.append(f"Topics covered so far this session: {', '.join(self.topics_discussed[:15])}")
+
+        if not parts:
+            parts.append(f"This is your very first session with {self.student_name or 'this child'} — welcome them warmly!")
+
+        return "\n".join(parts)
 
     def _build_system_prompt(self) -> str:
         name = self.student_name or "friend"
 
         memory_prompt = (
-            "Always check the memory context below before answering. "
-            "If the child asks about something previously discussed, reference it naturally "
-            "(e.g. \"Last time we talked about planets - remember Jupiter?\"). "
-            "Connect new questions to existing knowledge when it fits naturally. "
-            "If a fact is new, you may briefly say you'll remember it."
+            f"MEMORY RULES: Read the PAST SESSIONS block carefully before every reply. "
+            f"1) If {name} asks about something from a past session, reference it warmly — "
+            f"'Last time you asked about X, remember?' or 'We learned Y together!'  "
+            f"2) Notice patterns in curiosity across sessions ('You love space topics!'). "
+            f"3) Never re-explain basics already taught in past sessions — build on them. "
+            f"4) At session START, greet them with a callback to the last session if summaries exist."
         )
 
         playful_prompt = (
@@ -912,6 +1053,7 @@ class MimiLLMSession:
             # ── Farewell check — skip LLM, play warm goodbye ─────────
             if self._is_farewell(user_text):
                 import random
+                import threading
                 MOTIVATIONAL_QUOTES = [
                     "You're a star! 🌟 Keep shining bright!",
                     "Every day you learn something new – that's amazing! 🚀",
@@ -929,6 +1071,17 @@ class MimiLLMSession:
                 self.current_action = "done"
                 self.session_ended  = True
                 logger.info("[Farewell] Detected farewell — session ending: %s", self.session_id)
+
+                # Snapshot history NOW and generate session summary in background
+                # (non-blocking — response is already built above)
+                history_snapshot = list(self.conversation_history)
+                threading.Thread(
+                    target=self._generate_and_save_summary,
+                    args=(history_snapshot,),
+                    daemon=True,
+                    name=f"summary-{self.session_id[:8]}",
+                ).start()
+
                 return {"text": msg, "farewell": True, "image_url": None, "yt_video": None, "topic": "", "audio": None}
 
             # ── Topic list shortcut — skip LLM entirely ──────────────
