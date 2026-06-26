@@ -1,22 +1,15 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// ── Available videos (transparent background .webm) ──────────────────────────
-import mimiIdleVideo from '../../assets/images/mimi/mimiidell_nobg.webm'
-import mimiWaveVideo from '../../assets/images/mimi/mimiwavehand_nobg.webm'
-// Add these imports once you create the files:
-// import mimiThinkingVideo    from '../../assets/images/mimi/mimithinking_nobg.webm'
-// import mimiTalkingVideo     from '../../assets/images/mimi/mimitalking_nobg.webm'
-// import mimiListeningVideo   from '../../assets/images/mimi/mimilistening_nobg.webm'
-// import mimiExcitedVideo     from '../../assets/images/mimi/mimiexcited_nobg.webm'
-// import mimiCelebratingVideo from '../../assets/images/mimi/mimicelebrating_nobg.webm'
-
-// ── Fallbacks until new videos are ready ─────────────────────────────────────
-const mimiThinkingVideo    = mimiIdleVideo
-const mimiTalkingVideo     = mimiIdleVideo
-const mimiListeningVideo   = mimiWaveVideo
-const mimiExcitedVideo     = mimiWaveVideo
-const mimiCelebratingVideo = mimiWaveVideo
+// ── Videos (transparent background .webm) ────────────────────────────────────
+import mimiIdleVideo        from '../../assets/images/mimi/mimiidell_nobg.webm'
+import mimiWaveVideo        from '../../assets/images/mimi/mimiwavehand_nobg.webm'
+import mimiThinkingVideo    from '../../assets/images/mimi/mimithinking_nobg.webm'
+import mimiTalkingVideo     from '../../assets/images/mimi/mimitalking_nobg.webm'
+import mimiExcitedVideo     from '../../assets/images/mimi/mimiexcited_nobg.webm'
+import mimiCelebratingVideo from '../../assets/images/mimi/mimicelebrating_nobg.webm'
+// mimilistening_nobg.webm not yet available — falls back to wave
+const mimiListeningVideo = mimiWaveVideo
 
 // ── State → video map ─────────────────────────────────────────────────────────
 const VIDEO_MAP = {
@@ -26,6 +19,7 @@ const VIDEO_MAP = {
   thinking:      mimiThinkingVideo,
   mimi_speaking: mimiTalkingVideo,
   interrupted:   mimiExcitedVideo,
+  celebrating:   mimiCelebratingVideo,
 }
 
 const getVideo = (vadStatus, sessionState, isSpeaking) => {
@@ -41,6 +35,7 @@ const GLOW = {
   thinking:      'rgba(250,204,21,0.40)',
   mimi_speaking: 'rgba(167,139,250,0.50)',
   interrupted:   'rgba(56,189,248,0.55)',
+  celebrating:   'rgba(251,191,36,0.60)',
 }
 
 // ── Subtle body pulse per state (no vertical bounce) ─────────────────────────
@@ -51,6 +46,7 @@ const BODY = {
   thinking:      { rotate: [0, -2, 2, 0], transition: { duration: 4,   repeat: Infinity, ease: 'easeInOut' } },
   mimi_speaking: { scale: [1, 1.02,  1],  transition: { duration: 0.9, repeat: Infinity, ease: 'easeInOut' } },
   interrupted:   { scale: [1, 1.08,  1],  transition: { duration: 0.4, ease: 'easeOut' } },
+  celebrating:   { scale: [1, 1.05,  1],  transition: { duration: 0.6, repeat: Infinity, ease: 'easeInOut' } },
 }
 
 // ── Thinking bubble ───────────────────────────────────────────────────────────
@@ -116,6 +112,12 @@ const Sparkles = ({ emojis, trigger }) => (
 )
 
 
+// All video sources in one array for preloading
+const ALL_VIDEOS = [
+  mimiIdleVideo, mimiWaveVideo, mimiThinkingVideo,
+  mimiTalkingVideo, mimiExcitedVideo, mimiCelebratingVideo,
+]
+
 // ── Main component ────────────────────────────────────────────────────────────
 const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 'idle' }) => {
   const videoSrc = getVideo(vadStatus, sessionState, isSpeaking)
@@ -125,18 +127,18 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
   return (
     <div className="relative z-20 flex-shrink-0 select-none" style={{ width: '420px', height: '520px' }}>
 
-      {/* ── Ambient glow ── */}
-      <motion.div
-        className="absolute inset-8 rounded-full pointer-events-none"
-        animate={{
-          boxShadow: [`0 0 50px 25px ${glow}`, `0 0 90px 50px ${glow}`, `0 0 50px 25px ${glow}`]
-        }}
-        transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-      />
+      {/* ── Hidden preloader: forces browser to download all videos on mount ── */}
+      <div style={{ display: 'none' }} aria-hidden="true">
+        {ALL_VIDEOS.map(src => (
+          <video key={src} src={src} preload="auto" muted playsInline />
+        ))}
+      </div>
+
 
       {/* ── Sparkles ── */}
       <Sparkles emojis={['⭐', '✨', '💫']} trigger={vadStatus === 'user_speaking'} />
       <Sparkles emojis={['🎉', '🌟', '✨']} trigger={vadStatus === 'mimi_speaking' && isSpeaking} />
+      <Sparkles emojis={['🎊', '⭐', '🎉', '💫']} trigger={vadStatus === 'celebrating'} />
 
       {/* ── Character body with subtle pulse ── */}
       <motion.div className="w-full h-full relative" animate={bodyAnim}>
@@ -175,19 +177,25 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
           {vadStatus === 'mimi_speaking' && <SoundBars key="bars" />}
         </AnimatePresence>
 
-        {/* Idle sparkle (occasional) */}
-        <AnimatePresence>
-          {(!sessionState === 'running' || vadStatus === 'idle') && (
-            <motion.div
-              key="idle-star"
-              className="absolute top-6 left-8 text-3xl pointer-events-none"
-              animate={{ scale: [0, 1.1, 1, 0], opacity: [0, 1, 1, 0] }}
-              transition={{ duration: 2, repeat: Infinity, repeatDelay: 4 }}
-            >
-              ✨
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Idle sparkles scattered around the character */}
+        {(sessionState !== 'running' || vadStatus === 'idle') && [
+          { emoji: '✨', top: '8%',  left: '10%', delay: 0,   size: 'text-3xl' },
+          { emoji: '⭐', top: '15%', left: '82%', delay: 1.2, size: 'text-2xl' },
+          { emoji: '✨', top: '55%', left: '88%', delay: 2.4, size: 'text-xl'  },
+          { emoji: '💫', top: '70%', left: '5%',  delay: 0.8, size: 'text-2xl' },
+          { emoji: '✨', top: '35%', left: '92%', delay: 3.0, size: 'text-lg'  },
+          { emoji: '⭐', top: '80%', left: '78%', delay: 1.8, size: 'text-xl'  },
+        ].map((s, i) => (
+          <motion.div
+            key={`idle-spark-${i}`}
+            className={`absolute ${s.size} pointer-events-none select-none`}
+            style={{ top: s.top, left: s.left }}
+            animate={{ scale: [0, 1.2, 1, 0], opacity: [0, 1, 1, 0] }}
+            transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 3, delay: s.delay, ease: 'easeInOut' }}
+          >
+            {s.emoji}
+          </motion.div>
+        ))}
       </motion.div>
     </div>
   )
