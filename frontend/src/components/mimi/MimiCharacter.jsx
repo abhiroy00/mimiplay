@@ -11,6 +11,11 @@ import mimiCelebratingVideo from '../../assets/images/mimi/mimicelebrating_nobg.
 // mimilistening_nobg.webm not yet available — falls back to wave
 const mimiListeningVideo = mimiWaveVideo
 
+// JSXMemberExpression (e.g. <motion.div>) is not tracked as a scope reference by ESLint.
+// This assignment creates a regular JS reference so the linter knows motion is used.
+// _motion is intentionally allowed-unused per varsIgnorePattern '^[A-Z_]'.
+const _motion = motion
+
 // ── State → video map ─────────────────────────────────────────────────────────
 const VIDEO_MAP = {
   idle:          mimiIdleVideo,
@@ -22,7 +27,7 @@ const VIDEO_MAP = {
   celebrating:   mimiCelebratingVideo,
 }
 
-const getVideo = (vadStatus, sessionState, isSpeaking) => {
+const getVideo = (vadStatus, sessionState) => {
   if (sessionState !== 'running') return mimiIdleVideo
   return VIDEO_MAP[vadStatus] || mimiIdleVideo
 }
@@ -120,8 +125,7 @@ const ALL_VIDEOS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 'idle' }) => {
-  const videoSrc = getVideo(vadStatus, sessionState, isSpeaking)
-  const glow     = GLOW[vadStatus] || GLOW.idle
+  const videoSrc = getVideo(vadStatus, sessionState)
   const bodyAnim = BODY[vadStatus] || BODY.idle
 
   return (
