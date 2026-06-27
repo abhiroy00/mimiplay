@@ -219,6 +219,36 @@ def _strip_emojis(text: str) -> str:
     return re.sub(r' {2,}', ' ', cleaned).strip()
 
 
+def _transcribe_audio_whisper(wav_bytes: bytes, student_name: str = "") -> str:
+    """
+    Transcribe audio via OpenAI Whisper-1.
+    Whisper handles Indian English and non-English names far better than Google STT.
+    Returns the transcript string, or empty string on failure.
+    """
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        return ""
+    try:
+        from openai import OpenAI as _OAI
+        client = _OAI(api_key=api_key)
+        buf = io.BytesIO(wav_bytes)
+        buf.name = "audio.wav"
+        # Prompt biases Whisper toward Indian names and Indian English phonetics
+        prompt = "Indian English accent."
+        if student_name:
+            prompt += f" The speaker's name is {student_name}."
+        result = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=buf,
+            language="en",
+            prompt=prompt,
+        )
+        return (result.text or "").strip()
+    except Exception as e:
+        logger.error("[Whisper] STT failed: %s", e)
+        return ""
+
+
 def _generate_tts_audio_base64(text: str) -> str:
     """Stream edge-tts audio into memory (no temp file) and return as base64."""
     if not text:
@@ -645,13 +675,20 @@ def mimi_chat_audio():
             audio = AudioSegment.from_file(raw_buf)
         with io.BytesIO() as wav_buffer:
             audio.export(wav_buffer, format="wav")
-            wav_buffer.seek(0)
-            recognizer = sr.Recognizer()
-            with sr.AudioFile(wav_buffer) as source:
-                audio_data = recognizer.record(source)
-                text = recognizer.recognize_google(audio_data, language="en-IN")
+            wav_bytes = wav_buffer.getvalue()
 
-        logger.info("Audio context transcribed: %s", text[:80])
+        # Whisper primary (better Indian accent + name recognition)
+        text = _transcribe_audio_whisper(wav_bytes, student_name)
+
+        # Fall back to Google STT if Whisper unavailable or fails
+        if not text:
+            with io.BytesIO(wav_bytes) as wb:
+                recognizer = sr.Recognizer()
+                with sr.AudioFile(wb) as source:
+                    audio_data = recognizer.record(source)
+                    text = recognizer.recognize_google(audio_data, language="en-IN")
+
+        logger.info("[STT] Transcribed: %s", text[:80])
         result = session.process_text(text)
         if result and result.get("text"):
             session.current_audio      = _generate_tts_audio_base64(result["text"])

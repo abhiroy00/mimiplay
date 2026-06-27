@@ -811,14 +811,18 @@ const MimiChat = () => {
     recognition.lang            = 'en-IN'
     recognition.continuous      = false  // short-lived per-utterance sessions — far more stable
     recognition.interimResults  = true   // interim results let us catch "bye" before isFinal
-    recognition.maxAlternatives = 1
+    recognition.maxAlternatives = 3      // get top-3 so we can pick the best for Indian names
 
     recognition.onstart = () => setVadStatus('listening')
 
     recognition.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result     = event.results[i]
-        const transcript = result[0].transcript
+        const result = event.results[i]
+        // Pick best hypothesis: prefer the one containing the student name exactly,
+        // then the one whose closest word has smallest edit distance to the name.
+        const rawTranscript = _pickBestTranscript(result, studentNameRef.current)
+        // Correct words that are close misrecognitions of the student name
+        const transcript = _correctNameInTranscript(rawTranscript, studentNameRef.current)
         const lower      = transcript.toLowerCase().trim()
         if (!lower) continue
 
@@ -1418,6 +1422,52 @@ function extractYoutubeId(url) {
   if (!url) return ''
   const m = url.match(/(youtu\.be\/|v=|embed\/)([A-Za-z0-9_-]{6,})/)
   return m ? m[2] : url
+}
+
+// ── Speech recognition helpers for Indian accent + name correction ─────────────
+
+function _levenshtein(a, b) {
+  const m = a.length, n = b.length
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  )
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1]
+        ? dp[i-1][j-1]
+        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
+  return dp[m][n]
+}
+
+// Among SR result alternatives, prefer the hypothesis that best matches the student name.
+// Falls back to the top-confidence hypothesis when no name signal is present.
+function _pickBestTranscript(srResult, studentName) {
+  if (!studentName || srResult.length <= 1) return srResult[0].transcript
+  const nameLower = studentName.toLowerCase()
+  // Exact containment wins immediately
+  for (let i = 0; i < srResult.length; i++) {
+    if (srResult[i].transcript.toLowerCase().includes(nameLower)) return srResult[i].transcript
+  }
+  // Fuzzy: pick the alternative where the closest word to the name has lowest edit distance
+  let best = srResult[0].transcript, bestDist = Infinity
+  for (let i = 0; i < srResult.length; i++) {
+    const words = srResult[i].transcript.toLowerCase().split(/\s+/)
+    const minDist = Math.min(...words.map(w => _levenshtein(w, nameLower)))
+    if (minDist < bestDist) { bestDist = minDist; best = srResult[i].transcript }
+  }
+  return best
+}
+
+// Replace words that are likely misrecognitions of the student name with the correct spelling.
+// Threshold: distance ≤ 1 for short names (≤4 chars), ≤ 2 for longer names.
+function _correctNameInTranscript(transcript, studentName) {
+  if (!studentName) return transcript
+  const nameLower = studentName.toLowerCase()
+  const maxDist   = nameLower.length > 4 ? 2 : 1
+  return transcript.split(/(\s+)/).map(token => {
+    if (/\s/.test(token)) return token   // preserve whitespace tokens
+    return _levenshtein(token.toLowerCase(), nameLower) <= maxDist ? studentName : token
+  }).join('')
 }
 
 export default MimiChat
