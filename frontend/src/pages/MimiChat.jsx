@@ -1328,7 +1328,7 @@ const MimiChat = () => {
                     </Motion.div>
                   )}
 
-                  {/* Video — auto-plays after 5s if image shown, else immediately */}
+                  {/* Video — plays after 5s if image shown, else after 500ms */}
                   {ytVideo && playing && (
                     <Motion.div
                       className="mt-4"
@@ -1336,11 +1336,19 @@ const MimiChat = () => {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.4 }}>
                       <iframe
-                        src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1`}
+                        src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`}
                         title="YouTube video"
-                        allow="autoplay; encrypted-media; fullscreen"
+                        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                         allowFullScreen
-                        className="w-full h-52 rounded-2xl shadow-lg" />
+                        referrerPolicy="no-referrer-when-downgrade"
+                        className="w-full h-52 rounded-2xl shadow-lg border-0" />
+                      <a
+                        href={`https://www.youtube.com/watch?v=${extractYoutubeId(ytVideo)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-center text-xs text-indigo-500 font-semibold mt-1.5 hover:text-indigo-700 underline-offset-2 hover:underline">
+                        Watch on YouTube ↗
+                      </a>
                     </Motion.div>
                   )}
                 </div>

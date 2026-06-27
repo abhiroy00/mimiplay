@@ -685,7 +685,7 @@ class MimiLLMSession:
             f"{media_rule}\n"
             f'REPLY AS JSON ONLY: {{"text":"...","image_search_term":"...","youtube_search_term":"... for kids explained","topic":"..."}}'
         )
-        return prompt, 150
+        return prompt, 250
 
     # ── LLM helpers ───────────────────────────────────────────────────────────
 
@@ -772,8 +772,9 @@ class MimiLLMSession:
     def _fetch_youtube_video_url(self, search_term):
         api_key = self.youtube_key
         if not api_key:
+            logger.warning("[YouTube] YOUTUBE_API_KEY not set — video search disabled")
             return None
-        # Use standardized suffix for all children aged 4-14
+        # Append educational suffix if not already present
         suffix = "for kids educational"
         q = search_term if any(s in search_term.lower() for s in ["for kids", "explained", "educational"]) \
             else f"{search_term} {suffix}"
@@ -783,18 +784,25 @@ class MimiLLMSession:
                 params={
                     "part": "snippet", "q": q, "type": "video",
                     "safeSearch": "strict", "videoEmbeddable": "true",
+                    "regionCode": "IN", "relevanceLanguage": "en",
                     "maxResults": 3, "key": api_key,
                 },
-                timeout=3,
+                timeout=5,
             )
+            if not r.ok:
+                err = r.json().get("error", {})
+                logger.error("[YouTube] API error %d — %s", r.status_code, err.get("message", r.text[:200]))
+                return None
             for item in r.json().get("items", []):
                 id_block = item.get("id", {})
                 if id_block.get("kind") == "youtube#video":
                     video_id = id_block.get("videoId", "")
                     if video_id:
+                        logger.info("[YouTube] Found video %s for query: %s", video_id, q)
                         return f"https://www.youtube.com/embed/{video_id}"
+            logger.warning("[YouTube] No embeddable results for: %s", q)
         except Exception as e:
-            logger.error("YouTube API error: %s", e)
+            logger.error("[YouTube] Request exception: %s", e)
         return None
 
     def _get_openai_streaming(self, user_text: str, tts_func):
@@ -846,7 +854,7 @@ class MimiLLMSession:
         resp_text = (data.get("text") if data else None) or tts_text or full_text.strip()
         topic     = (data.get("topic") if data else "") or ""
         search    = (data.get("image_search_term") if data else "") or ""
-        yt_search = (data.get("youtube_search_term") if data else "") or search
+        yt_search = (data.get("youtube_search_term") if data else "") or search or topic
 
         # Media fetches run while we wait on TTS (which started early)
         media_ex = concurrent.futures.ThreadPoolExecutor(max_workers=2)
@@ -869,7 +877,7 @@ class MimiLLMSession:
             try:   image_url = img_fut.result(timeout=3)
             except Exception: pass
         if yt_fut:
-            try:   yt_video  = yt_fut.result(timeout=4)
+            try:   yt_video  = yt_fut.result(timeout=6)
             except Exception: pass
         media_ex.shutdown(wait=False)
 
@@ -919,7 +927,7 @@ class MimiLLMSession:
             return {"text": resp_text, "image_url": None, "yt_video": None, "audio": None, "topic": ""}
 
         search    = data.get("image_search_term") or ""
-        yt_search = data.get("youtube_search_term") or search
+        yt_search = data.get("youtube_search_term") or search or topic
 
         # ── All three I/O tasks in parallel: TTS + image + youtube ──────────
         # IMPORTANT: don't use `with` — that blocks until ALL threads finish.
@@ -943,7 +951,7 @@ class MimiLLMSession:
             try:   image_url = futures["image"].result(timeout=3)
             except Exception: pass
         if "yt" in futures:
-            try:   yt_video  = futures["yt"].result(timeout=4)
+            try:   yt_video  = futures["yt"].result(timeout=6)
             except Exception: pass
 
         ex.shutdown(wait=False)   # don't block — slow threads finish in background

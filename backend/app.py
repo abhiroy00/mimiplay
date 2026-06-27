@@ -1493,6 +1493,37 @@ def _extract_and_update_student_profile(student_id, student_name: str, conversat
         logger.warning("[Profile] Extraction failed for %s: %s", student_name, e)
 
 
+@app.route('/api/mimi/test-youtube', methods=['GET'])
+@require_auth_token
+def test_youtube():
+    """Debug endpoint: verifies the YouTube API key and returns a test search result."""
+    import requests as _req
+    api_key = os.environ.get("YOUTUBE_API_KEY", "")
+    if not api_key:
+        return jsonify({"ok": False, "error": "YOUTUBE_API_KEY not set"}), 400
+    try:
+        r = _req.get(
+            "https://www.googleapis.com/youtube/v3/search",
+            params={"part": "snippet", "q": "solar system for kids", "type": "video",
+                    "safeSearch": "strict", "videoEmbeddable": "true",
+                    "maxResults": 1, "key": api_key},
+            timeout=6,
+        )
+        body = r.json()
+        if not r.ok:
+            err = body.get("error", {})
+            return jsonify({"ok": False, "status": r.status_code,
+                            "message": err.get("message", "unknown")}), 200
+        items = body.get("items", [])
+        if items:
+            vid = items[0]["id"].get("videoId", "")
+            return jsonify({"ok": True, "video_id": vid,
+                            "embed_url": f"https://www.youtube.com/embed/{vid}"}), 200
+        return jsonify({"ok": True, "video_id": None, "message": "API works but no results"}), 200
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route('/api/mimi/stop-session', methods=['POST'])
 @require_auth_token
 def stop_mimi_session():
