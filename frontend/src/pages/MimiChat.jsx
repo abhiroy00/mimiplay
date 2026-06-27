@@ -828,7 +828,8 @@ const MimiChat = () => {
           pendingText = transcript
           setVadStatus('user_speaking')
           clearTimeout(silenceTimer)
-          silenceTimer = setTimeout(() => _sendNow(pendingText), 1500)
+          // 3 s gives children time to pause mid-thought without triggering an early send
+          silenceTimer = setTimeout(() => _sendNow(pendingText), 3000)
         }
       }
     }

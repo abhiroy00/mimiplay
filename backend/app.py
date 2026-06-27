@@ -198,18 +198,25 @@ CORS(app, origins=[
 ])
 
 
-_EMOJI_RE = __import__('re').compile(
-    "[\U0001F300-\U0001F9FF\U0001FA00-\U0001FAFF"
-    "\U00002702-\U000027B0\U000024C2-\U0001F251"
-    "\U0001F600-\U0001F64F\U0001F680-\U0001F6FF"
-    "\U00002500-\U00002BEF\U0000FE00-\U0000FE0F"
-    "\U0001F1E0-\U0001F1FF]+",
-    flags=__import__('re').UNICODE,
+# Comprehensive emoji regex.
+# Previous version missed U+2300-U+24C1 (Misc Technical: ⌚⌛⏰⏳ etc.) — edge-tts reads those aloud.
+# Also adds ZWJ (U+200D) and Combining Enclosing Keycap (U+20E3) used in compound/keycap emojis.
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"   # all modern SMP emoji (symbols, transport, flags, newer blocks)
+    "\U00002300-\U000027BF"   # Misc Technical (⌚⏰), Misc Symbols (☀⭐), Dingbats (✂✨)
+    "\U00002B00-\U00002BFF"   # Misc Symbols & Arrows (⬅⭐)
+    "\U0000FE00-\U0000FE0F"   # Variation Selectors (invisible modifier suffix on many emojis)
+    "\U0000200D"               # Zero Width Joiner (joins compound emojis like 👨‍👩‍👧)
+    "\U000020E3"               # Combining Enclosing Keycap (1️⃣ 2️⃣ #️⃣)
+    "]+",
+    re.UNICODE,
 )
 
 def _strip_emojis(text: str) -> str:
-    """Remove emojis so edge-tts doesn't read them aloud as 'star emoji' etc."""
-    return _EMOJI_RE.sub('', text).strip()
+    """Remove emojis before passing to edge-tts, which reads them as their Unicode names."""
+    cleaned = _EMOJI_RE.sub('', text)
+    return re.sub(r' {2,}', ' ', cleaned).strip()
 
 
 def _generate_tts_audio_base64(text: str) -> str:

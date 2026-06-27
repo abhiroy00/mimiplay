@@ -156,7 +156,7 @@ class MimiLLMSession:
         self.long_term_summary    = ""   # long-term: compact previous-sessions text
         self.topics_discussed     = []   # topic tracking across sessions
         self.history_loaded       = False  # flag — avoids double DB load
-        self.max_context_turns    = 3    # send last 3 turns (6 msgs) — fewer tokens = faster
+        self.max_context_turns    = 8    # send last 8 turns (16 msgs) — enough to retain names/context from early in session
 
         self._advanced_context = ""
         self._profile_context  = ""
@@ -627,6 +627,9 @@ class MimiLLMSession:
         _build_messages_with_history() already sends those as user/assistant messages.
         """
         parts = []
+        # Always anchor the student's name — this survives even when profile/LTM are empty
+        if self.student_name:
+            parts.append(f"Student's name: {self.student_name}.")
         if self._profile_context:
             parts.append(self._profile_context)
         if self.long_term_summary:
@@ -677,12 +680,12 @@ class MimiLLMSession:
             f"{memory_prompt}\n\n{playful_prompt}\n\n"
             f"Current memory context:\n{memory_context}"
             f"{realtime_block}\n\n"
-            f'RULES: Vary openers. 1 cool fact. End with 1 easy question. Max 25 words. '
-            f'Always fill image_search_term AND youtube_search_term for any named thing, animal, place, or topic.\n'
+            f'RULES: Always say {name}\'s name somewhere in text. Vary openers. 1 cool fact. End with 1 question. Max 35 words in text. '
+            f'Fill image_search_term AND youtube_search_term for any named thing, animal, place, or topic.\n'
             f"{media_rule}\n"
             f'REPLY AS JSON ONLY: {{"text":"...","image_search_term":"...","youtube_search_term":"... for kids explained","topic":"..."}}'
         )
-        return prompt, 80
+        return prompt, 150
 
     # ── LLM helpers ───────────────────────────────────────────────────────────
 
