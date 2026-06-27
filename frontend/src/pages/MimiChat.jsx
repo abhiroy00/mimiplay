@@ -289,6 +289,7 @@ const MimiChat = () => {
   const doInterruptRef         = useRef(null)   // stable ref to doInterrupt, used by playMimiAudio VAD
   const sayGoodbyeAndStopRef   = useRef(null)   // voice-triggered goodbye flow
   const justInterruptedRef     = useRef(0)      // timestamp of last doInterrupt (echo-clear window)
+  const wasInterruptedRef      = useRef(false)  // set by doInterrupt to prevent _resume double-restart
 
   useEffect(() => {
     chatHistoryRef.current = chatHistory
@@ -421,6 +422,7 @@ const MimiChat = () => {
       currentAudioRef.current = null
     }
     clearInterval(vadIntervalRef.current)
+    wasInterruptedRef.current = false  // reset interrupt flag for this playback
 
     isMimiSpeakingRef.current = true
     setVadStatus('celebrating')
@@ -430,18 +432,37 @@ const MimiChat = () => {
     // ── Audio-based VAD: detect user speaking via echo-cancelled mic ──
     // Uses AnalyserNode (set up with echoCancellation) so we DON'T pick up
     // Mimi's own speaker output — only real user voice triggers this.
+    // Dynamic baseline: first 500ms calibrates ambient RMS so threshold adapts
+    // to each speaker/mic setup. 3 consecutive checks (300ms) avoids noise spikes.
     clearInterval(vadIntervalRef.current)
     if (analyserRef.current) {
       const buf = new Uint8Array(analyserRef.current.frequencyBinCount)
       let voiced = 0
+      let baselineSum = 0
+      let baselineSamples = 0
+      let baselineCalibrated = false
+      let dynamicThreshold = 0.025  // fallback if calibration fails
+
       vadIntervalRef.current = setInterval(() => {
         if (!isMimiSpeakingRef.current) { clearInterval(vadIntervalRef.current); return }
         analyserRef.current.getByteTimeDomainData(buf)
         let sum = 0
         for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v }
         const rms = Math.sqrt(sum / buf.length)
-        if (rms > 0.04) {
-          if (++voiced >= 2) {                        // ~200ms sustained voice = real speech
+
+        if (!baselineCalibrated) {
+          baselineSum += rms
+          baselineSamples++
+          if (baselineSamples >= 5) {  // 5 × 100ms = 500ms calibration window
+            const avgBaseline = baselineSum / baselineSamples
+            dynamicThreshold = Math.max(0.025, avgBaseline + 0.015)
+            baselineCalibrated = true
+          }
+          return
+        }
+
+        if (rms > dynamicThreshold) {
+          if (++voiced >= 3) {  // 3 × 100ms = 300ms sustained voice = real speech
             clearInterval(vadIntervalRef.current)
             if (doInterruptRef.current) doInterruptRef.current()
           }
@@ -457,18 +478,21 @@ const MimiChat = () => {
       currentAudioRef.current = audio
 
       const _resume = () => {
-        clearInterval(vadIntervalRef.current)       // stop VAD when audio ends naturally
+        clearInterval(vadIntervalRef.current)
         URL.revokeObjectURL(url)
         currentAudioRef.current = null
         isMimiSpeakingRef.current = false
         setIsSpeaking(false)
+        // doInterrupt already restarted recognition — don't start it again
+        if (wasInterruptedRef.current) {
+          wasInterruptedRef.current = false
+          return
+        }
         if (!sessionIdRef.current && !onDone) return
         setVadStatus('listening')
         if (onDone) {
           onDone()
         } else if (sessionIdRef.current) {
-          // With continuous:false, recognition ends naturally while Mimi speaks.
-          // Always restart it so we're listening again after Mimi finishes.
           if (startVADRef.current) startVADRef.current()
         }
       }
@@ -671,7 +695,7 @@ const MimiChat = () => {
     if (analyserRef.current) return           // already set up
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        audio: { echoCancellation: true }
       })
       micStreamRef.current = stream
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -694,22 +718,27 @@ const MimiChat = () => {
   const doInterrupt = useCallback(() => {
     clearInterval(vadIntervalRef.current)
     if (currentAudioRef.current) {
+      wasInterruptedRef.current = true        // signal _resume to skip double-restart
       currentAudioRef.current.pause()
       currentAudioRef.current = null
     }
     isMimiSpeakingRef.current = false
     setIsSpeaking(false)
     setVadStatus('interrupted')               // flash "Got it!" for 400ms
-    justInterruptedRef.current = Date.now()   // start 200ms echo-clear window
+    justInterruptedRef.current = Date.now()   // start echo-clear window
     setTimeout(() => setVadStatus('listening'), 400)
-    // Always kill the old recognition (it was discarding results while Mimi spoke)
-    // and start a fresh one so the child's interrupting voice is captured.
+    // Kill the old recognition then wait 300ms for Chrome to fully close it
+    // before starting a new one — prevents "already started" race condition.
     if (recognitionRef.current) {
       try { recognitionRef.current.stop() } catch {}
       recognitionRef.current = null
     }
     if (sessionIdRef.current && startVADRef.current) {
-      startVADRef.current()
+      setTimeout(() => {
+        if (sessionIdRef.current && !isMimiSpeakingRef.current) {
+          startVADRef.current()
+        }
+      }, 300)
     }
   }, [])
 
@@ -811,18 +840,14 @@ const MimiChat = () => {
     recognition.lang            = 'en-IN'
     recognition.continuous      = false  // short-lived per-utterance sessions — far more stable
     recognition.interimResults  = true   // interim results let us catch "bye" before isFinal
-    recognition.maxAlternatives = 3      // get top-3 so we can pick the best for Indian names
+    recognition.maxAlternatives = 1
 
     recognition.onstart = () => setVadStatus('listening')
 
     recognition.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i]
-        // Pick best hypothesis: prefer the one containing the student name exactly,
-        // then the one whose closest word has smallest edit distance to the name.
-        const rawTranscript = _pickBestTranscript(result, studentNameRef.current)
-        // Correct words that are close misrecognitions of the student name
-        const transcript = _correctNameInTranscript(rawTranscript, studentNameRef.current)
+        const result     = event.results[i]
+        const transcript = result[0].transcript
         const lower      = transcript.toLowerCase().trim()
         if (!lower) continue
 
@@ -839,8 +864,8 @@ const MimiChat = () => {
         // ── Discard while Mimi is speaking (echo of her voice) ────────
         if (isMimiSpeakingRef.current) return
 
-        // ── 200ms echo-clear window after VAD interrupt ───────────────
-        if (Date.now() - justInterruptedRef.current < 200) return
+        // ── 500ms echo-clear window after VAD interrupt ───────────────
+        if (Date.now() - justInterruptedRef.current < 500) return
 
         // ── Normal listening ──────────────────────────────────────────
         if (result.isFinal) {
@@ -1422,52 +1447,6 @@ function extractYoutubeId(url) {
   if (!url) return ''
   const m = url.match(/(youtu\.be\/|v=|embed\/)([A-Za-z0-9_-]{6,})/)
   return m ? m[2] : url
-}
-
-// ── Speech recognition helpers for Indian accent + name correction ─────────────
-
-function _levenshtein(a, b) {
-  const m = a.length, n = b.length
-  const dp = Array.from({ length: m + 1 }, (_, i) =>
-    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-  )
-  for (let i = 1; i <= m; i++)
-    for (let j = 1; j <= n; j++)
-      dp[i][j] = a[i-1] === b[j-1]
-        ? dp[i-1][j-1]
-        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
-  return dp[m][n]
-}
-
-// Among SR result alternatives, prefer the hypothesis that best matches the student name.
-// Falls back to the top-confidence hypothesis when no name signal is present.
-function _pickBestTranscript(srResult, studentName) {
-  if (!studentName || srResult.length <= 1) return srResult[0].transcript
-  const nameLower = studentName.toLowerCase()
-  // Exact containment wins immediately
-  for (let i = 0; i < srResult.length; i++) {
-    if (srResult[i].transcript.toLowerCase().includes(nameLower)) return srResult[i].transcript
-  }
-  // Fuzzy: pick the alternative where the closest word to the name has lowest edit distance
-  let best = srResult[0].transcript, bestDist = Infinity
-  for (let i = 0; i < srResult.length; i++) {
-    const words = srResult[i].transcript.toLowerCase().split(/\s+/)
-    const minDist = Math.min(...words.map(w => _levenshtein(w, nameLower)))
-    if (minDist < bestDist) { bestDist = minDist; best = srResult[i].transcript }
-  }
-  return best
-}
-
-// Replace words that are likely misrecognitions of the student name with the correct spelling.
-// Threshold: distance ≤ 1 for short names (≤4 chars), ≤ 2 for longer names.
-function _correctNameInTranscript(transcript, studentName) {
-  if (!studentName) return transcript
-  const nameLower = studentName.toLowerCase()
-  const maxDist   = nameLower.length > 4 ? 2 : 1
-  return transcript.split(/(\s+)/).map(token => {
-    if (/\s/.test(token)) return token   // preserve whitespace tokens
-    return _levenshtein(token.toLowerCase(), nameLower) <= maxDist ? studentName : token
-  }).join('')
 }
 
 export default MimiChat
