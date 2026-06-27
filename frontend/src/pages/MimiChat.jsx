@@ -260,9 +260,11 @@ const MimiChat = () => {
   const [topicsList,    setTopicsList]    = useState([])   // topics discussed this session
   const [showTopics,    setShowTopics]    = useState(false)
 
-  const pollingRef       = useRef(null)
-  const facePollingRef   = useRef(null)
-  const faceTimeoutRef   = useRef(null)
+  const pollingRef           = useRef(null)
+  const facePollingRef       = useRef(null)
+  const faceTimeoutRef       = useRef(null)
+  const faceHitCountRef      = useRef(0)    // consecutive successful recognitions
+  const lastFaceNameRef      = useRef(null) // name from last frame — resets streak on mismatch
   const lastAnswerRef    = useRef('')
   const lastActionRef    = useRef('')
   const chatHistoryRef   = useRef([])
@@ -357,41 +359,56 @@ const MimiChat = () => {
       setShowManualEntry(true)
     }, 30000)
 
+    faceHitCountRef.current = 0
+    lastFaceNameRef.current = null
+
     facePollingRef.current = setInterval(async () => {
-      if (!videoRef.current || !canvasRef.current || !videoRef.current.srcObject) {
-        console.log("[FaceDetect] Skipping frame: webcam not ready");
-        return
-      }
+      if (!videoRef.current || !canvasRef.current || !videoRef.current.srcObject) return
 
       try {
         const canvas = canvasRef.current
         const video  = videoRef.current
-        canvas.width  = 320 // Small for faster upload
-        canvas.height = 240
+        // Full webcam resolution — 320x240 produced ~50x50 px faces that HOG misses at arm's length
+        canvas.width  = 640
+        canvas.height = 480
         const ctx = canvas.getContext('2d')
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const base64 = canvas.toDataURL('image/jpeg', 0.7)
+        const base64 = canvas.toDataURL('image/jpeg', 0.85)
 
-        console.log("[FaceDetect] Sending frame to backend...");
         const res  = await axios.post(API_ENDPOINTS.PROCESS_FRAME, { image: base64 })
         const data = res.data
-        
+
         if (data.person) {
-          console.log("[FaceDetect] RECOGNIZED:", data.person);
           const name = data.person.replace(/_/g, ' ').trim()
-          clearInterval(facePollingRef.current)
-          clearTimeout(faceTimeoutRef.current)
-          facePollingRef.current = null
-          faceTimeoutRef.current = null
-          stopWebcam()
-          setShowManualEntry(false)
-          setStudentName(name)
-          startMimiSession(name)
+          // Require 2 consecutive frames of the same person to avoid single-frame false positives
+          if (name === lastFaceNameRef.current) {
+            faceHitCountRef.current++
+          } else {
+            faceHitCountRef.current = 1
+            lastFaceNameRef.current = name
+          }
+          console.log(`[FaceDetect] ${name} — hit ${faceHitCountRef.current}/2`)
+
+          if (faceHitCountRef.current >= 2) {
+            clearInterval(facePollingRef.current)
+            clearTimeout(faceTimeoutRef.current)
+            facePollingRef.current = null
+            faceTimeoutRef.current = null
+            faceHitCountRef.current = 0
+            lastFaceNameRef.current = null
+            stopWebcam()
+            setShowManualEntry(false)
+            setStudentName(name)
+            startMimiSession(name)
+          }
         } else {
-          console.log("[FaceDetect] No face recognized yet...");
+          // Reset streak on any non-recognition frame
+          faceHitCountRef.current = 0
+          lastFaceNameRef.current = null
+          console.log('[FaceDetect] No face recognized (distance or no detection)')
         }
       } catch (e) { console.error('[FaceDetect] Error during frame processing:', e) }
-    }, 2000) // Poll every 1s to be safe and reduce load
+    }, 1000) // 1 s — matches original intent (comment said 1 s, code was 2 s)
   }, [stopWebcam]) // eslint-disable-line
 
   // ── Play Mimi's audio response, then resume listening ─────────

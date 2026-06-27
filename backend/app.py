@@ -266,7 +266,7 @@ else:
 
 # ── Session store — Redis L2 + in-process LRU L1 (TTL handled by Redis) ──────
 from session_store import SessionStore
-from config import REDIS_URL as _REDIS_URL
+from config import REDIS_URL as _REDIS_URL, SECRET
 _store = SessionStore(redis_url=_REDIS_URL or None)
 
 # Bounded dedup dict for /stop-session duplicate-request guard (not session state)
@@ -1084,7 +1084,7 @@ def process_frame():
         locations = fr.face_locations(rgb)
         encodings = fr.face_encodings(rgb, locations)
         
-        RECOGNITION_THRESHOLD = 0.45
+        RECOGNITION_THRESHOLD = 0.55  # 0.45 was too strict — rejects valid faces in different lighting/angle
 
         for enc in encodings:
             distances = fr.face_distance(known_encs, enc)
@@ -1258,8 +1258,9 @@ def upload_session_video():
         import gridfs
         
         fs = gridfs.GridFS(mongo_db)
+        video_data = video_file.read()
         video_id = fs.put(
-            video_file.read(),
+            video_data,
             filename=filename,
             content_type=video_file.content_type or 'video/webm',
             student_id=student_id,
@@ -1269,7 +1270,7 @@ def upload_session_video():
             recorded_at=recorded_at,
             upload_date=datetime.now(timezone.utc)
         )
-        
+
         # Store metadata in session_videos collection
         mongo_db["session_videos"].insert_one({
             "video_id": video_id,
@@ -1278,7 +1279,7 @@ def upload_session_video():
             "session_type": session_type,
             "filename": filename,
             "duration": duration,
-            "file_size": len(video_file.read()),
+            "file_size": len(video_data),
             "recorded_at": recorded_at,
             "uploaded_at": datetime.now(timezone.utc).isoformat(),
             "status": "uploaded"
