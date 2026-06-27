@@ -257,14 +257,20 @@ else:
     system = None
     logger.info("Face recognition disabled")
 
-# Session registry — keyed by session_id, one MimiLLMSession per active student
-# Prevents concurrent users from corrupting each other's state
-_mimi_sessions: dict = {}
-_stopped_sessions = set()
+# ── Session store — Redis L2 + in-process LRU L1 (TTL handled by Redis) ──────
+from session_store import SessionStore
+from config import REDIS_URL as _REDIS_URL
+_store = SessionStore(redis_url=_REDIS_URL or None)
+
+# Bounded dedup dict for /stop-session duplicate-request guard (not session state)
+_stopped_sessions: dict = {}
+_STOPPED_SESSIONS_MAX = 500
+
 
 def _get_or_create_session(session_id: str, student_name: str = "", student_id=None, student_age: int = 10) -> MimiLLMSession:
-    if session_id not in _mimi_sessions:
-        _mimi_sessions[session_id] = MimiLLMSession(
+    session = _store.get(session_id)
+    if session is None:
+        session = MimiLLMSession(
             openai_api_key=OPENAI_API_KEY,
             anthropic_api_key=ANTHROPIC_API_KEY,
             student_name=student_name,
@@ -272,7 +278,8 @@ def _get_or_create_session(session_id: str, student_name: str = "", student_id=N
             student_id=student_id,
             student_age=student_age,
         )
-    return _mimi_sessions[session_id]
+        _store.set(session_id, session)
+    return session
 
 
 # =============================================================================
@@ -517,10 +524,13 @@ def start_mimi_session():
     logger.info("Mimi session started for: %s | id: %s | session: %s",
                 student_name, raw_id, session_id)
 
-    # Pre-warm all three memory tiers in a background thread so the first
-    # question response has no extra DB latency.
+    # Pre-warm all memory tiers in a background thread, then persist the loaded
+    # state so the first text-chat on any worker has zero extra DB latency.
     import threading as _threading
-    _threading.Thread(target=session.preload_history, daemon=True).start()
+    def _preload_and_persist():
+        session.preload_history()
+        _store.set(session_id, session)
+    _threading.Thread(target=_preload_and_persist, daemon=True).start()
 
     import random
     greetings = [
@@ -545,10 +555,11 @@ def start_mimi_session():
 def mimi_get():
     try:
         session_id = request.args.get('session_id', '')
-        session    = _mimi_sessions.get(session_id)
+        session    = _store.get(session_id)
         if not session:
             return jsonify({'text': None, 'image_url': None, 'yt_video': None,
                             'action': 'idle', 'has_response': False, 'session_ended': False})
+        _store.touch(session_id)
 
         text   = session.current_text
         image  = session.current_image or None
@@ -618,7 +629,7 @@ def mimi_chat_audio():
         student_name = request.form.get('student_name', '')
 
         # Look up or create session (handles reconnects gracefully)
-        session = _mimi_sessions.get(session_id)
+        session = _store.get(session_id)
         if not session:
             session = _get_or_create_session(session_id, student_name)
 
@@ -639,8 +650,9 @@ def mimi_chat_audio():
             session.current_audio      = _generate_tts_audio_base64(result["text"])
             session.current_audio_text = result["text"]
             result["audio"]            = session.current_audio
+        _store.set(session_id, session)  # persist all mutations
         if result and result.get("farewell"):
-            _mimi_sessions.pop(session_id, None)
+            _store.delete(session_id)
             logger.info("[mimi-chat-audio] Farewell — session %s auto-removed", session_id)
         return jsonify({"status": "success", "text": text, "data": result})
     except sr.UnknownValueError:
@@ -1392,56 +1404,138 @@ def verify_video_token(video_id, token):
     except Exception:
         return False
 
+def _extract_and_update_student_profile(student_id, student_name: str, conversation_history: list):
+    """
+    Extract structured student facts from a session's conversation using Claude Haiku,
+    then merge them into the student_profiles MongoDB collection.
+    Runs in a background daemon thread — any failure is logged and swallowed.
+    Skipped if < 4 messages (not enough signal).
+    """
+    if not student_id or not conversation_history or len(conversation_history) < 4:
+        return
+    try:
+        turns = conversation_history[-20:]
+        transcript_lines = []
+        for turn in turns:
+            role = "Child" if turn.get("role") == "user" else "Mimi"
+            transcript_lines.append(f"{role}: {turn.get('content', '')[:200]}")
+        transcript = "\n".join(transcript_lines)
+
+        prompt = (
+            f"You are analyzing a conversation between an AI tutor named Mimi and a child named {student_name}.\n"
+            "Extract structured information about the child from this conversation.\n\n"
+            f"Conversation:\n{transcript}\n\n"
+            "Return ONLY valid JSON with these exact keys (use empty arrays/objects if no data found):\n"
+            '{"interests":["list of topics the child showed interest in, max 10"],'
+            '"struggling_topics":["topics the child found difficult, max 5"],'
+            '"progress":{"strengths":["things the child did well, max 5"],'
+            '"areas_to_improve":["areas needing improvement, max 5"]}}\n\n'
+            "Only include facts clearly evidenced in the conversation. Do not infer or guess."
+        )
+
+        if not _anthropic_available or not ANTHROPIC_API_KEY:
+            logger.debug("[Profile] Anthropic unavailable — skipping profile extraction")
+            return
+
+        client = _get_anthropic_client()
+        if not client:
+            return
+
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            temperature=0.1,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        extracted = _parse_json(resp.content[0].text)
+
+        if not isinstance(extracted, dict):
+            logger.warning("[Profile] Haiku returned non-dict for %s", student_name)
+            return
+
+        from extensions import db as _ext_db
+        now = datetime.now(timezone.utc)
+
+        interests        = [s for s in extracted.get("interests", [])                       if isinstance(s, str)][:10]
+        struggling       = [s for s in extracted.get("struggling_topics", [])               if isinstance(s, str)][:5]
+        strengths        = [s for s in extracted.get("progress", {}).get("strengths", [])   if isinstance(s, str)][:5]
+        areas_to_improve = [s for s in extracted.get("progress", {}).get("areas_to_improve", []) if isinstance(s, str)][:5]
+
+        update: dict = {
+            "$set": {"name": student_name, "last_session_date": now.isoformat(), "updated_at": now.isoformat()},
+            "$inc": {"total_sessions": 1},
+        }
+        add_to_set: dict = {}
+        if interests:        add_to_set["interests"]               = {"$each": interests}
+        if struggling:       add_to_set["struggling_topics"]       = {"$each": struggling}
+        if strengths:        add_to_set["progress.strengths"]      = {"$each": strengths}
+        if areas_to_improve: add_to_set["progress.areas_to_improve"] = {"$each": areas_to_improve}
+        if add_to_set:
+            update["$addToSet"] = add_to_set
+
+        _ext_db["student_profiles"].update_one(
+            {"student_id": student_id},
+            update,
+            upsert=True,
+        )
+        logger.info("[Profile] Updated profile for %s (interests=%d, struggling=%d)",
+                    student_name, len(interests), len(struggling))
+
+    except Exception as e:
+        logger.warning("[Profile] Extraction failed for %s: %s", student_name, e)
+
+
 @app.route('/api/mimi/stop-session', methods=['POST'])
 @require_auth_token
 def stop_mimi_session():
     """Mark session ended, remove it from registry, and optionally send chat history via WhatsApp."""
     try:
         data = request.get_json(silent=True) or {}
-        session_id = data.get('session_id', '')
+        session_id   = data.get('session_id', '')
         student_name = data.get('student_name', '')
         send_whatsapp = data.get('send_whatsapp', False)
 
-        # Duplicate request guard
+        # Duplicate request guard (bounded dict evicts oldest entry when full)
         if session_id in _stopped_sessions:
             logger.warning("[stop-session] Duplicate request ignored for session: %s", session_id)
             return jsonify({'status': 'ok', 'duplicate': True})
-        _stopped_sessions.add(session_id)
-        if len(_stopped_sessions) > 100:
-            _stopped_sessions.clear()
-        
-        session = _mimi_sessions.get(session_id)
+        _stopped_sessions[session_id] = True
+        if len(_stopped_sessions) > _STOPPED_SESSIONS_MAX:
+            _stopped_sessions.pop(next(iter(_stopped_sessions)))
+
+        session = _store.get(session_id)
         if session:
             session.session_ended = True
-            _mimi_sessions.pop(session_id, None)
+            conversation_history  = list(session.conversation_history)
+            student_id            = session.student_id
+            student_name          = session.student_name or student_name
+            _store.delete(session_id)
             logger.info("[stop-session] Removed session %s", session_id)
-        
+
+            # Extract student profile in a background thread — skipped if < 4 messages
+            if len(conversation_history) >= 4:
+                import threading as _threading
+                _threading.Thread(
+                    target=_extract_and_update_student_profile,
+                    args=(student_id, student_name, conversation_history),
+                    daemon=True,
+                ).start()
+
         # Send WhatsApp chat history if requested
         if send_whatsapp and student_name:
             try:
-                # Get chat history for this session
-                chat_docs = list(mimi_chats.find({
-                    "session_id": session_id,
-                    "student_name": student_name
-                }))
-                
-                # Extract all messages from all chat documents
-                all_messages = []
-                for doc in chat_docs:
-                    messages = doc.get('messages', [])
-                    all_messages.extend(messages)
-                
+                chat_docs = list(mimi_chats.find({"session_id": session_id, "student_name": student_name}))
+                all_messages = [msg for doc in chat_docs for msg in doc.get('messages', [])]
                 if all_messages:
                     from services.whatsapp_service import send_chat_history_to_parent
                     send_chat_history_to_parent(student_name, all_messages)
-                    logger.info("[stop-session] WhatsApp chat history sent for %s (%d messages)", 
+                    logger.info("[stop-session] WhatsApp chat history sent for %s (%d messages)",
                                student_name, len(all_messages))
                 else:
                     logger.info("[stop-session] No chat messages to send for %s", student_name)
-                    
             except Exception as wp_err:
                 logger.warning("[stop-session] WhatsApp send failed: %s", wp_err)
-        
+
         return jsonify({'status': 'ok'})
     except Exception as e:
         logger.error("[stop-session] Unexpected error: %s", e, exc_info=True)
@@ -1460,7 +1554,7 @@ def mimi_text_chat():
     if not text or not session_id:
         return jsonify({"status": "error", "message": "text and session_id required"}), 400
 
-    session = _mimi_sessions.get(session_id)
+    session = _store.get(session_id)
     if not session:
         session = _get_or_create_session(session_id, student_name)
 
@@ -1486,6 +1580,7 @@ def mimi_text_chat():
             topic=result.get("topic", ""), image_url=result.get("image_url", "")
         )
 
+    _store.set(session_id, session)  # persist all mutations (conversation_history, audio text, etc.)
     return jsonify({"status": "success", "user_text": text, "data": result})
 
 

@@ -18,3 +18,4 @@ face_recognition
 SpeechRecognition
 pydub
 prometheus-flask-exporter
+redis

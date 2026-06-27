@@ -5,16 +5,11 @@ import requests
 import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from pymongo import MongoClient
+from extensions import db as _ext_db
 
 logger = logging.getLogger(__name__)
 
-# MongoDB connection for conversation memory
-MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/")
-_mongo_client = MongoClient(MONGO_URI)
-_db = _mongo_client["AlexiDB"]
-_mimi_chats = _db["mimi_chats"]
-_session_summaries = _db["mimi_session_summaries"]
+_mimi_chats = _ext_db["mimi_chats"]
 
 # Advanced memory system (optional - falls back gracefully)
 try:
@@ -163,109 +158,38 @@ class MimiLLMSession:
         self.history_loaded       = False  # flag — avoids double DB load
         self.max_context_turns    = 3    # send last 3 turns (6 msgs) — fewer tokens = faster
 
-        self.memory_router = None
-        self.memory_mode   = "basic"
+        self._advanced_context = ""
+        self._profile_context  = ""
+        if ADVANCED_MEMORY_AVAILABLE and student_id:
+            try:
+                self.memory_router = MemoryRouter(str(student_id), session_id)
+                self.memory_mode   = "advanced"
+                logger.info("[MimiLLM] Advanced memory router initialized for student=%s", student_id)
+            except Exception as e:
+                logger.warning("[MimiLLM] MemoryRouter init failed: %s", e)
+                self.memory_router = None
+                self.memory_mode   = "basic"
+        else:
+            self.memory_router = None
+            self.memory_mode   = "basic"
 
         logger.info(
-            "MimiLLMSession: student=%s session=%s openai=%s anthropic=%s",
-            student_name, session_id, bool(self.openai_key), bool(self.anthropic_key)
+            "MimiLLMSession: student=%s session=%s openai=%s anthropic=%s mode=%s",
+            student_name, session_id, bool(self.openai_key), bool(self.anthropic_key), self.memory_mode
         )
 
     # ── Memory Methods ──────────────────────────────────────────────────────
 
-    def _build_long_term_summary(self):
-        """
-        LONG-TERM MEMORY: try rich session summaries first (mimi_session_summaries),
-        fall back to extracting topics from mimi_chats if no summaries exist yet.
-        """
-        if not self.student_name:
-            return ""
-
-        # ── RICH PATH: use LLM-generated session summaries ─────────────────
-        try:
-            prev_summaries = list(_session_summaries.find(
-                {
-                    "student_name": {"$regex": f"^{self.student_name}$", "$options": "i"},
-                    "session_id":   {"$ne": self.session_id},
-                },
-                sort=[("created_at", -1)],
-                limit=5,
-            ))
-        except Exception as e:
-            logger.error("[LTM] session_summaries query failed: %s", e)
-            prev_summaries = []
-
-        if prev_summaries:
-            lines = []
-            for s in prev_summaries:
-                date     = s.get("session_date", "recently")
-                summary  = s.get("summary", "")
-                topics   = ", ".join(s.get("topics",    [])[:5])
-                facts    = "; ".join(s.get("key_facts", [])[:3])
-                qs       = s.get("questions", [])[:3]
-                q_text   = "; ".join(f'"{q}"' for q in qs) if qs else ""
-
-                parts = [f"• {date}: {summary}"]
-                if topics:   parts.append(f"Topics: {topics}.")
-                if facts:    parts.append(f"Taught: {facts}.")
-                if q_text:   parts.append(f"Asked: {q_text}.")
-                lines.append(" ".join(parts))
-
-            session_count = len(prev_summaries)
-            header = (
-                f"You've had {session_count} previous session{'s' if session_count > 1 else ''} "
-                f"with {self.student_name}:"
-            )
-            result = header + "\n" + "\n".join(lines)
-            logger.info("[LTM] Rich summaries loaded: %d sessions", session_count)
-            return result
-
-        # ── FALLBACK PATH: extract topics from raw mimi_chats ──────────────
-        try:
-            prev_docs = list(_mimi_chats.find(
-                {
-                    "student_name": {"$regex": f"^{self.student_name}$", "$options": "i"},
-                    "session_id":   {"$ne": self.session_id},
-                },
-                sort=[("updated_at", -1)],
-                limit=5,
-            ))
-            if not prev_docs:
-                return ""
-
-            seen_topics: set = set()
-            all_topics: list = []
-            last_date = prev_docs[0].get("date", "")
-            for doc in prev_docs:
-                for msg in doc.get("messages", []):
-                    t = (msg.get("topic") or "").strip()
-                    if t and t.lower() not in seen_topics:
-                        seen_topics.add(t.lower())
-                        all_topics.append(t)
-
-            parts = []
-            if last_date:
-                parts.append(f"Last session: {last_date}")
-            if all_topics:
-                parts.append(f"Topics already discussed: {', '.join(all_topics[:15])}")
-            result = " | ".join(parts)
-            logger.info("[LTM] Fallback summary built: %s", result[:120])
-            return result
-        except Exception as e:
-            logger.error("[LTM] Fallback failed: %s", e)
-            return ""
-
     def load_history(self):
         """
-        Load all three memory tiers from MongoDB.
-        Called eagerly at session start so the first question has zero DB latency.
+        Load all three memory tiers from MongoDB in a single scan.
+        Called eagerly at session start so the first question has zero extra DB latency.
         """
         if self.history_loaded:
             return
         self.history_loaded = True
 
-        # ── SHORT-TERM: restore current-session turns from DB ──────────
-        # (needed if the worker restarted between turns)
+        # ── SHORT-TERM: restore current-session turns from DB ─────────────────
         try:
             if self.session_id:
                 doc = _mimi_chats.find_one({"session_id": self.session_id})
@@ -277,13 +201,64 @@ class MimiLLMSession:
                         if a: self.conversation_history.append({"role": "assistant", "content": a})
             logger.info("[STM] %d current-session messages loaded", len(self.conversation_history))
         except Exception as e:
-            logger.error("[STM] Load failed: %s", e)
+            logger.warning("[STM] Failed to load current session: %s", e)
 
-        # ── LONG-TERM: compact previous-sessions summary ────────────────
-        self.long_term_summary = self._build_long_term_summary()
+        # ── LONG-TERM + TOPICS: single query over last 5 previous sessions ────
+        if self.student_name:
+            try:
+                prev_docs = list(_mimi_chats.find(
+                    {
+                        "student_name": {"$regex": f"^{self.student_name}$", "$options": "i"},
+                        "session_id":   {"$ne": self.session_id},
+                    },
+                    sort=[("updated_at", -1)],
+                    limit=5,
+                ))
+                if prev_docs:
+                    seen_topics: set = set()
+                    all_topics:  list = []
+                    last_date = prev_docs[0].get("date", "")
+                    for doc in prev_docs:
+                        for msg in doc.get("messages", []):
+                            t = (msg.get("topic") or "").strip()
+                            if t and t.lower() not in seen_topics:
+                                seen_topics.add(t.lower())
+                                all_topics.append(t)
+                    self.topics_discussed  = all_topics[:15]
+                    parts = []
+                    if last_date:
+                        parts.append(f"Last session: {last_date}")
+                    if all_topics:
+                        parts.append(f"Topics already discussed: {', '.join(all_topics[:15])}")
+                    self.long_term_summary = " | ".join(parts)
+                    logger.info("[LTM] Summary built: %s", self.long_term_summary[:120])
+            except Exception as e:
+                logger.error("[LTM] Failed: %s", e)
 
-        # ── TOPICS: all topics from previous + current sessions ─────────
-        self._load_topics_from_history()
+        # ── STUDENT PROFILE: load persisted facts from student_profiles ───────
+        self._load_student_profile()
+
+    def _load_student_profile(self):
+        if not self.student_id:
+            return
+        try:
+            profile = _ext_db["student_profiles"].find_one({"student_id": self.student_id})
+            if not profile:
+                self._profile_context = ""
+                return
+            p = [f"Student context: Name is {profile.get('name', self.student_name)}."]
+            interests = profile.get("interests", [])
+            if interests:
+                p.append(f"Interested in: {', '.join(interests[:5])}.")
+            struggling = profile.get("struggling_topics", [])
+            if struggling:
+                p.append(f"Needs help with: {', '.join(struggling[:3])}.")
+            strengths = profile.get("progress", {}).get("strengths", [])
+            if strengths:
+                p.append(f"Strengths: {', '.join(strengths[:3])}.")
+            self._profile_context = " ".join(p)
+        except Exception as e:
+            logger.warning("[Profile] Failed to load profile: %s", e)
 
     # Keep old name as alias so any existing callers don't break
     def _load_conversation_history(self):
@@ -310,45 +285,6 @@ class MimiLLMSession:
         t = text.lower().strip()
         return any(phrase in t for phrase in self.TOPIC_REQUEST_PHRASES)
 
-    def _load_topics_from_history(self):
-        """Load topics from previous sessions and current session messages."""
-        try:
-            topics = []
-            if self.student_name:
-                prev_sessions = list(_mimi_chats.find(
-                    {
-                        "student_name": {"$regex": f"^{self.student_name}$", "$options": "i"},
-                        "session_id":   {"$ne": self.session_id}
-                    },
-                    sort=[("updated_at", -1)],
-                    limit=3
-                ))
-                for prev_doc in prev_sessions:
-                    for msg in prev_doc.get("messages", []):
-                        t = (msg.get("topic") or "").strip()
-                        if t:
-                            topics.append(t)
-
-            if self.session_id:
-                session_doc = _mimi_chats.find_one({"session_id": self.session_id})
-                if session_doc:
-                    for msg in session_doc.get("messages", []):
-                        t = (msg.get("topic") or "").strip()
-                        if t:
-                            topics.append(t)
-
-            seen = set()
-            unique = []
-            for t in topics:
-                key = t.lower()
-                if key not in seen:
-                    seen.add(key)
-                    unique.append(t)
-
-            self.topics_discussed = unique
-            logger.info(f"[Topics] Loaded {len(unique)} topics for {self.student_name}")
-        except Exception as e:
-            logger.error(f"[Topics] Failed to load topics: {e}")
 
     def _build_topic_list_response(self):
         name = self.student_name or "friend"
@@ -528,7 +464,7 @@ class MimiLLMSession:
 
         try:
             now = datetime.now(timezone.utc)
-            _session_summaries.insert_one({
+            _ext_db["session_summaries"].insert_one({
                 "student_name":   self.student_name,
                 "session_id":     self.session_id,
                 "topics":         data.get("topics", []),
@@ -548,9 +484,10 @@ class MimiLLMSession:
         """Get statistics about current conversation memory."""
         return {
             "messages_in_memory": len(self.conversation_history),
-            "max_messages": self.max_history_messages,
+            "max_context_turns": self.max_context_turns,
             "session_id": self.session_id,
-            "student_name": self.student_name
+            "student_name": self.student_name,
+            "memory_mode": self.memory_mode,
         }
 
     def _build_messages_with_history(self, system_prompt, user_message):
@@ -685,28 +622,20 @@ class MimiLLMSession:
 
     def get_memory_context(self) -> str:
         """
-        Memory context injected into the system prompt each turn.
-        Working memory (this session's turns) is excluded — those are sent as
-        explicit user/assistant messages by _build_messages_with_history().
+        Compact text summary of all memory tiers, injected into the system prompt.
+        NOTE: working memory (recent turns of THIS session) is excluded here —
+        _build_messages_with_history() already sends those as user/assistant messages.
         """
         parts = []
-
+        if self._profile_context:
+            parts.append(self._profile_context)
         if self.long_term_summary:
-            parts.append(
-                f"=== PAST SESSIONS ===\n"
-                f"{self.long_term_summary}\n"
-                f"Use this to reference what {self.student_name or 'the child'} has already learned. "
-                f"Say things like \"Last time we talked about...\" or \"You asked about...\" or "
-                f"\"Remember when you discovered...\" Make them feel remembered and proud. "
-                f"==="
-            )
-        elif self.topics_discussed:
-            parts.append(f"Topics covered so far this session: {', '.join(self.topics_discussed[:15])}")
-
-        if not parts:
-            parts.append(f"This is your very first session with {self.student_name or 'this child'} — welcome them warmly!")
-
-        return "\n".join(parts)
+            parts.append(f"Past sessions: {self.long_term_summary}")
+        if self.topics_discussed:
+            parts.append(f"Topics already discussed: {', '.join(self.topics_discussed[:15])}")
+        if self._advanced_context:
+            parts.append(f"Advanced context: {self._advanced_context}")
+        return "\n".join(parts) if parts else "No prior memory yet — this is a fresh start."
 
     def _build_system_prompt(self) -> str:
         name = self.student_name or "friend"
@@ -1126,6 +1055,17 @@ class MimiLLMSession:
             if self._realtime_block:
                 logger.info("[Realtime] Injected: %s", self._realtime_block[:120])
 
+            # ── Build advanced memory context for this turn ───────────────
+            # Only runs when MEMORY_MODE=full is set. Default: skip (zero latency impact).
+            if self.memory_router and os.getenv("MEMORY_MODE") == "full":
+                try:
+                    adv = self.memory_router.build_context(user_text, max_tokens=500)
+                    self._advanced_context = adv.get("summary", "")
+                except Exception:
+                    self._advanced_context = ""
+            else:
+                self._advanced_context = ""
+
             # ── Normal LLM flow — TTS runs in parallel with media fetch ──
             result = self._get_llm_response_json(user_text, tts_func=tts_func)
 
@@ -1148,9 +1088,17 @@ class MimiLLMSession:
             self.current_video  = result.get("yt_video")
             self.current_action = "done"
 
+            # ── Persist interaction to all advanced memory tiers ──────────
+            # Only runs when MEMORY_MODE=full is set. Default: skip (zero latency impact).
+            if self.memory_router and os.getenv("MEMORY_MODE") == "full":
+                try:
+                    self.memory_router.update_memories(user_text, assistant_response)
+                except Exception:
+                    pass
+
             logger.info(
-                "[Memory] %d msgs | [Topics] %d topics",
-                len(self.conversation_history), len(self.topics_discussed)
+                "[Memory] %d msgs | [Topics] %d topics | mode=%s",
+                len(self.conversation_history), len(self.topics_discussed), self.memory_mode
             )
             return result
         except Exception as e:

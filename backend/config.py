@@ -16,3 +16,4 @@ if not _SECRET_ENV:
 SECRET = _SECRET_ENV
 MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/")
 DB_NAME = "AlexiDB"
+REDIS_URL = os.environ.get("REDIS_URL", "")   # empty string = in-memory fallback
