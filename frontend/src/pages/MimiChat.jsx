@@ -460,7 +460,9 @@ const MimiChat = () => {
         }
 
         if (rms > dynamicThreshold) {
-          if (++voiced >= 3) {  // 3 × 100ms = 300ms sustained voice = real speech
+          // In noisy rooms (high threshold) require more sustained voice to avoid false triggers
+          const requiredChecks = dynamicThreshold > 0.05 ? 4 : 3
+          if (++voiced >= requiredChecks) {
             clearInterval(vadIntervalRef.current)
             if (doInterruptRef.current) doInterruptRef.current()
           }
@@ -825,6 +827,21 @@ const MimiChat = () => {
     let silenceTimer  = null
     let pendingText   = ''
 
+    // ── Noise / filler sounds that should never be sent as messages ──
+    // Background noise often transcribes to these single tokens.
+    const _NOISE_TOKENS = new Set([
+      'um', 'uh', 'hmm', 'hm', 'ah', 'oh', 'eh', 'er',
+      'mm', 'mmm', 'mhm', 'uhh', 'umm', 'uhm', 'huh',
+      'ha', 'he', 'hi', 'ho', 'a', 'the', 'i',
+    ])
+    // Returns true if the transcript is just ambient noise / filler
+    const _isNoise = (text) => {
+      const t = text.trim()
+      if (t.length < 3) return true
+      const words = t.toLowerCase().split(/\s+/)
+      return words.length <= 2 && words.every(w => _NOISE_TOKENS.has(w))
+    }
+
     const _sendNow = (text) => {
       clearTimeout(silenceTimer)
       silenceTimer = null
@@ -905,8 +922,16 @@ const MimiChat = () => {
 
         // ── Normal listening ──────────────────────────────────────────
         if (result.isFinal) {
+          // Discard if confidence is very low (background noise mis-transcribed)
+          // confidence is 0 when unavailable — only reject if explicitly < 0.4
+          const conf = result[0].confidence
+          if (conf > 0 && conf < 0.4) return
+          // Discard pure noise / filler tokens
+          if (_isNoise(transcript)) return
           _sendNow(transcript)
         } else {
+          // Don't show "speaking" indicator for noise-only interim results
+          if (_isNoise(transcript)) return
           pendingText = transcript
           setVadStatus('user_speaking')
           clearTimeout(silenceTimer)
@@ -1130,54 +1155,75 @@ const MimiChat = () => {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* ── Top Bar ────────────────────────────────────────────── */}
-      <div className="absolute top-5 right-5 z-50 flex items-center gap-2.5">
+      <div className="absolute top-3 right-3 sm:top-5 sm:right-5 z-50 flex flex-wrap items-center justify-end gap-1.5 sm:gap-2.5 max-w-[calc(100vw-1.5rem)]">
         {studentName && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-white/90 backdrop-blur-sm rounded-full font-bold text-purple-800 shadow-lg text-sm">
-            <span className="w-6 h-6 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 text-xs">👤</span>
-            {studentName}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-white/90 backdrop-blur-sm rounded-full font-bold text-purple-800 shadow-lg text-xs sm:text-sm">
+            <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 text-xs">👤</span>
+            <span className="max-w-[80px] sm:max-w-none truncate">{studentName}</span>
           </div>
         )}
         {sessionState === 'running' && topicsList.length > 0 && (
           <Motion.button
             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             onClick={() => setShowTopics(v => !v)}
-            className="px-4 py-2 rounded-full bg-amber-100/90 text-amber-700 font-bold shadow text-sm border border-amber-200">
+            className="px-3 py-1.5 sm:px-4 sm:py-2 rounded-full bg-amber-100/90 text-amber-700 font-bold shadow text-xs sm:text-sm border border-amber-200">
             📚 {topicsList.length}
           </Motion.button>
         )}
         {sessionState === 'running' && (
-          <>
-            <Motion.div
-              animate={vadStatus === 'user_speaking' || vadStatus === 'interrupted' ? { scale: [1, 1.08, 1] } : {}}
-              transition={{ repeat: Infinity, duration: 0.5 }}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-bold shadow-lg backdrop-blur-sm ${
-                vadStatus === 'listening'     ? 'bg-purple-600/90 text-white' :
-                vadStatus === 'user_speaking' ? 'bg-red-500/90 text-white' :
-                vadStatus === 'thinking'      ? 'bg-amber-500/90 text-white' :
-                vadStatus === 'mimi_speaking' ? 'bg-violet-600/90 text-white' :
-                vadStatus === 'interrupted'   ? 'bg-cyan-500/90 text-white' :
-                'bg-gray-500/80 text-white'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-green-300 inline-block" />
-              {vadStatus === 'listening'     && 'Active'}
-              {vadStatus === 'user_speaking' && 'Speaking...'}
-              {vadStatus === 'thinking'      && 'Thinking...'}
-              {vadStatus === 'mimi_speaking' && 'Mimi Speaking...'}
-              {vadStatus === 'interrupted'   && 'Got it!'}
-              {vadStatus === 'idle'          && 'Starting...'}
-            </Motion.div>
+          <React.Fragment>
+            {(() => {
+              const STATUS_BG = {
+                listening:     'bg-purple-600/90 text-white',
+                user_speaking: 'bg-red-500/90 text-white',
+                thinking:      'bg-amber-500/90 text-white',
+                mimi_speaking: 'bg-violet-600/90 text-white',
+                interrupted:   'bg-cyan-500/90 text-white',
+                celebrating:   'bg-pink-500/90 text-white',
+              }
+              const STATUS_DOT = {
+                listening:     'bg-green-300',
+                user_speaking: 'bg-white animate-pulse',
+                thinking:      'bg-yellow-200 animate-pulse',
+                mimi_speaking: 'bg-pink-300 animate-pulse',
+                interrupted:   'bg-white',
+                celebrating:   'bg-yellow-200 animate-pulse',
+              }
+              const STATUS_LABEL = {
+                listening:     { full: '🎤 Listening...',     icon: '🎤' },
+                user_speaking: { full: '🔴 Speaking...',      icon: '🔴' },
+                thinking:      { full: '⏳ Thinking...',      icon: '⏳' },
+                mimi_speaking: { full: '🔊 Mimi Speaking...', icon: '🔊' },
+                interrupted:   { full: '⚡ Got it!',          icon: '⚡' },
+                celebrating:   { full: '🎉 Yay!',             icon: '🎉' },
+              }
+              const bg    = STATUS_BG[vadStatus]    || 'bg-gray-500/80 text-white'
+              const dot   = STATUS_DOT[vadStatus]   || 'bg-gray-300'
+              const label = STATUS_LABEL[vadStatus] || { full: '⚪ Active', icon: '⚪' }
+              const pulse = vadStatus === 'user_speaking' || vadStatus === 'interrupted'
+              return (
+                <Motion.div
+                  animate={pulse ? { scale: [1, 1.08, 1] } : {}}
+                  transition={{ repeat: Infinity, duration: 0.5 }}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-bold shadow-lg backdrop-blur-sm ${bg}`}
+                >
+                  <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full inline-block flex-shrink-0 ${dot}`} />
+                  <span className="hidden xs:inline">{label.full}</span>
+                  <span className="xs:hidden">{label.icon}</span>
+                </Motion.div>
+              )
+            })()}
             <Motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
               onClick={stopSession}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/80 backdrop-blur-sm text-gray-700 font-bold shadow text-sm border border-gray-200">
-              ⏹ Stop
+              className="flex items-center gap-1 sm:gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-white/80 backdrop-blur-sm text-gray-700 font-bold shadow text-xs sm:text-sm border border-gray-200">
+              ⏹ <span className="hidden sm:inline">Stop</span>
             </Motion.button>
-          </>
+          </React.Fragment>
         )}
         {(sessionState === 'idle' || sessionState === 'stopped') && (
           <Motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             onClick={startFaceDetection}
-            className="px-5 py-2.5 rounded-full text-white bg-indigo-600 font-bold shadow-lg text-sm">
+            className="px-4 py-2 sm:px-5 sm:py-2.5 rounded-full text-white bg-indigo-600 font-bold shadow-lg text-xs sm:text-sm">
             🎤 Start
           </Motion.button>
         )}
@@ -1189,9 +1235,9 @@ const MimiChat = () => {
           <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <Motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
-              className="bg-white rounded-[2.5rem] p-8 text-center shadow-2xl max-w-lg w-full mx-4 border-4 border-purple-100">
-              
-              <div className="relative w-full aspect-video bg-gray-100 rounded-3xl overflow-hidden mb-6 shadow-inner border-2 border-purple-50">
+              className="bg-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 text-center shadow-2xl max-w-lg w-full mx-3 sm:mx-4 border-2 sm:border-4 border-purple-100">
+
+              <div className="relative w-full aspect-video bg-gray-100 rounded-2xl sm:rounded-3xl overflow-hidden mb-4 sm:mb-6 shadow-inner border-2 border-purple-50">
                 <video
                   ref={videoRef}
                   autoPlay
@@ -1207,8 +1253,8 @@ const MimiChat = () => {
                 )}
               </div>
 
-              <h2 className="text-3xl font-black text-purple-700 mb-2">Who is there?</h2>
-              <p className="text-purple-500 text-lg mb-6 tracking-wide">Align your face with the frame...</p>
+              <h2 className="text-xl sm:text-3xl font-black text-purple-700 mb-1 sm:mb-2">Who is there?</h2>
+              <p className="text-purple-500 text-sm sm:text-lg mb-4 sm:mb-6 tracking-wide">Align your face with the frame...</p>
               
               <div className="flex justify-center gap-3">
                 {[0, 1, 2].map(i => (
@@ -1277,10 +1323,10 @@ const MimiChat = () => {
           <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/50">
             <Motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }}
-              className="bg-white rounded-3xl px-12 py-10 text-center shadow-2xl max-w-md">
-              <div className="text-7xl mb-4">✅</div>
-              <h2 className="text-3xl font-black text-green-700 mb-2">Session Complete!</h2>
-              <p className="text-gray-500 mb-2">
+              className="bg-white rounded-3xl px-6 py-8 sm:px-12 sm:py-10 text-center shadow-2xl max-w-md w-[90vw] sm:w-auto mx-3">
+              <div className="text-5xl sm:text-7xl mb-3 sm:mb-4">✅</div>
+              <h2 className="text-xl sm:text-3xl font-black text-green-700 mb-2">Session Complete!</h2>
+              <p className="text-sm sm:text-base text-gray-500 mb-2">
                 <strong>{chatHistory.length}</strong> conversations saved for{' '}
                 <strong>{studentName}</strong>
               </p>
@@ -1308,7 +1354,7 @@ const MimiChat = () => {
       <div className="absolute inset-0 flex flex-col items-center justify-end pb-0">
 
         {/* ── Dialogue column — sits above Mimi, centered ──────── */}
-        <div className="w-full max-w-xl px-4 flex flex-col items-center gap-3 mb-[-20px] z-30">
+        <div className="w-full max-w-[95vw] sm:max-w-[85vw] md:max-w-[75vw] lg:max-w-[72vw] px-3 sm:px-4 flex flex-col items-center gap-2 sm:gap-3 mb-[-12px] sm:mb-[-20px] z-30">
 
           {/* Audio waveform indicator — only when speaking */}
           <AnimatePresence>
@@ -1346,30 +1392,30 @@ const MimiChat = () => {
                 style={{ border: '2.5px solid', borderColor: isSpeaking ? '#a78bfa' : '#e0e7ff' }}
               >
                 {/* Header strip */}
-                <div className={`flex items-center gap-2 px-5 py-2.5 ${isSpeaking ? 'bg-violet-50' : 'bg-indigo-50/80'}`}>
+                <div className={`flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 ${isSpeaking ? 'bg-violet-50' : 'bg-indigo-50/80'}`}>
                   <Motion.div
-                    className="text-lg"
+                    className="text-base sm:text-lg"
                     animate={isSpeaking ? { scale: [1, 1.3, 1] } : {}}
                     transition={{ duration: 0.5, repeat: Infinity }}
                   >
                     {isSpeaking ? '🔊' : '💬'}
                   </Motion.div>
-                  <span className="text-sm font-black text-purple-700 tracking-wide">
+                  <span className="text-xs sm:text-sm font-black text-purple-700 tracking-wide">
                     {isSpeaking ? 'Mimi is talking...' : 'Mimi says'}
                   </span>
                   {isTyping && (
                     <div className="ml-auto flex gap-1">
                       {[0, 1, 2].map(i => (
-                        <Motion.div key={i} className="w-2 h-2 bg-purple-400 rounded-full"
-                          animate={{ y: [0, -5, 0] }}
+                        <Motion.div key={i} className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-purple-400 rounded-full"
+                          animate={{ y: [0, -4, 0] }}
                           transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15 }} />
                       ))}
                     </div>
                   )}
                 </div>
 
-                <div className="px-5 py-4">
-                  <p className="text-xl font-semibold text-gray-800 leading-relaxed">
+                <div className="px-4 sm:px-5 py-3 sm:py-4 max-h-[30vh] sm:max-h-[38vh] overflow-y-auto">
+                  <p className="text-base sm:text-lg md:text-xl font-semibold text-gray-800 leading-relaxed">
                     {displayedText}
                     {isTyping && (
                       <Motion.span
@@ -1386,7 +1432,7 @@ const MimiChat = () => {
                       initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
                       transition={{ duration: 0.4 }}>
                       <img src={imageUrl} alt="mimi result" referrerPolicy="no-referrer"
-                        className="w-full max-h-48 object-cover mx-auto rounded-2xl shadow-lg" />
+                        className="w-full max-h-32 sm:max-h-48 object-cover mx-auto rounded-xl sm:rounded-2xl shadow-lg" />
                     </Motion.div>
                   )}
 
@@ -1415,7 +1461,7 @@ const MimiChat = () => {
                         allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                         allowFullScreen
                         referrerPolicy="no-referrer-when-downgrade"
-                        className="w-full h-48 rounded-2xl shadow-lg border-0" />
+                        className="w-full h-36 sm:h-48 rounded-xl sm:rounded-2xl shadow-lg border-0" />
                       <a href={`https://www.youtube.com/watch?v=${extractYoutubeId(ytVideo)}`}
                         target="_blank" rel="noopener noreferrer"
                         className="block text-center text-xs text-indigo-500 font-semibold mt-1.5 hover:underline">
