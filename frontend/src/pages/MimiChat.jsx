@@ -234,15 +234,8 @@ const MimiChat = () => {
   const [playing,       setPlaying]       = useState(false)
 
   // Image → then Video sequence:
-  // If response has both image and video → show image first, auto-play video after 5s.
-  // If only video → play immediately.
-  useEffect(() => {
-    setPlaying(false)
-    if (!ytVideo) return
-    const delay = imageUrl ? 5000 : 500
-    const t = setTimeout(() => setPlaying(true), delay)
-    return () => clearTimeout(t)
-  }, [ytVideo, imageUrl])
+  // Reset playing state when video is cleared
+  useEffect(() => { if (!ytVideo) setPlaying(false) }, [ytVideo])
   const [displayedText, setDisplayedText] = useState('')
   const [isTyping,      setIsTyping]      = useState(false)
   const [isSpeaking,    setIsSpeaking]    = useState(false) // ← Mimi bol rahi hai?
@@ -290,6 +283,8 @@ const MimiChat = () => {
   const sayGoodbyeAndStopRef   = useRef(null)   // voice-triggered goodbye flow
   const justInterruptedRef     = useRef(0)      // timestamp of last doInterrupt (echo-clear window)
   const wasInterruptedRef      = useRef(false)  // set by doInterrupt to prevent _resume double-restart
+  const videoConfirmModeRef    = useRef(false)  // true while waiting for user to confirm video play
+  const videoDirectRequestRef  = useRef(false)  // true when user's text explicitly asked for a video
 
   useEffect(() => {
     chatHistoryRef.current = chatHistory
@@ -343,6 +338,9 @@ const MimiChat = () => {
     setMimiText('')
     setImageUrl(null)
     setYtVideo(null)
+    setPlaying(false)
+    videoConfirmModeRef.current   = false
+    videoDirectRequestRef.current = false
     setChatHistory([])
     chatHistoryRef.current = []
     lastAnswerRef.current  = ''
@@ -566,7 +564,13 @@ const MimiChat = () => {
       if (data?.text) {
         setMimiText(data.text)
         setImageUrl(data.image_url || null)
-        setYtVideo(data.yt_video || null)
+        const _videoUrl = data.yt_video || null
+        setYtVideo(_videoUrl)
+        if (_videoUrl) {
+          // Audio path: we don't have the original text, so always require confirmation
+          setPlaying(false)
+          videoConfirmModeRef.current = true
+        }
         lastAnswerRef.current = data.text
 
         if (data.topics_list) {
@@ -614,6 +618,10 @@ const MimiChat = () => {
     const name = studentNameRef.current
     if (!sid || !text.trim()) return
 
+    // Track whether this is a direct video request — used to decide auto-play vs confirm
+    videoDirectRequestRef.current = _VIDEO_REQUEST_RE.test(text)
+    videoConfirmModeRef.current   = false  // reset on every new user message
+
     // Kill any currently-playing audio before we go async — prevents overlap
     if (currentAudioRef.current) {
       currentAudioRef.current.pause()
@@ -633,7 +641,17 @@ const MimiChat = () => {
       if (data?.text) {
         setMimiText(data.text)
         setImageUrl(data.image_url || null)
-        setYtVideo(data.yt_video   || null)
+        const videoUrl = data.yt_video || null
+        setYtVideo(videoUrl)
+        if (videoUrl) {
+          if (videoDirectRequestRef.current) {
+            setPlaying(true)               // user asked for it — play immediately
+          } else {
+            setPlaying(false)              // proactive video — ask first
+            videoConfirmModeRef.current = true
+          }
+          videoDirectRequestRef.current = false
+        }
         lastAnswerRef.current = data.text
 
         // Topic memory — update list & auto-show when topics_list returned
@@ -861,6 +879,24 @@ const MimiChat = () => {
           return
         }
 
+        // ── Video confirmation intercept ───────────────────────────────
+        // When Mimi proactively returned a video, we ask "want to play it?"
+        // A YES-like word triggers play; NO-like clears the video.
+        if (videoConfirmModeRef.current && result.isFinal) {
+          if (_YES_VIDEO_RE.test(lower)) {
+            videoConfirmModeRef.current = false
+            setPlaying(true)
+            return
+          }
+          if (_NO_VIDEO_RE.test(lower)) {
+            videoConfirmModeRef.current = false
+            setPlaying(false)
+            setYtVideo(null)
+            return
+          }
+          videoConfirmModeRef.current = false  // any other reply exits confirm mode
+        }
+
         // ── Discard while Mimi is speaking (echo of her voice) ────────
         if (isMimiSpeakingRef.current) return
 
@@ -936,7 +972,9 @@ const MimiChat = () => {
         lastAnswerRef.current = d.text
         setMimiText(d.text)
         setImageUrl(d.image_url || null)
-        setYtVideo(d.yt_video || null)
+        const _pollVideo = d.yt_video || null
+        setYtVideo(_pollVideo)
+        if (_pollVideo) { setPlaying(false); videoConfirmModeRef.current = true }
         if (d.audio) playMimiAudio(d.audio)
       } catch {}
     }, 1500)
@@ -1057,8 +1095,10 @@ const MimiChat = () => {
 
 
   return (
-    <div className="relative min-h-screen w-full bg-cover bg-center overflow-hidden"
+    <div className="relative h-screen w-full bg-cover bg-center overflow-hidden"
       style={{ backgroundImage: `url(${bgImage})` }}>
+      {/* Soft vignette so cards read against any bg photo */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/20 pointer-events-none z-0" />
 
       {/* ── Goodbye Screen Overlay ────────────────────────────── */}
       <AnimatePresence>
@@ -1090,66 +1130,57 @@ const MimiChat = () => {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* ── Top Bar ────────────────────────────────────────────── */}
-      <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
+      <div className="absolute top-5 right-5 z-50 flex items-center gap-2.5">
         {studentName && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-white/90 rounded-full font-bold text-purple-700 shadow-lg">
-            👤 {studentName}
+          <div className="flex items-center gap-2 px-4 py-2 bg-white/90 backdrop-blur-sm rounded-full font-bold text-purple-800 shadow-lg text-sm">
+            <span className="w-6 h-6 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 text-xs">👤</span>
+            {studentName}
           </div>
-        )}
-        {(sessionState === 'idle' || sessionState === 'stopped') && (
-          <Motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            onClick={startFaceDetection}
-            className="px-6 py-3 rounded-full text-white bg-indigo-600 font-bold shadow-lg">
-            🎤 Start Mimi Chat
-          </Motion.button>
         )}
         {sessionState === 'running' && topicsList.length > 0 && (
           <Motion.button
             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             onClick={() => setShowTopics(v => !v)}
-            className="px-4 py-2 rounded-full bg-amber-100 text-amber-700 font-bold shadow text-sm border border-amber-300">
-            📚 Topics ({topicsList.length})
+            className="px-4 py-2 rounded-full bg-amber-100/90 text-amber-700 font-bold shadow text-sm border border-amber-200">
+            📚 {topicsList.length}
           </Motion.button>
         )}
         {sessionState === 'running' && (
           <>
             <Motion.div
-              animate={vadStatus === 'user_speaking' || vadStatus === 'interrupted' ? { scale: [1, 1.1, 1] } : {}}
+              animate={vadStatus === 'user_speaking' || vadStatus === 'interrupted' ? { scale: [1, 1.08, 1] } : {}}
               transition={{ repeat: Infinity, duration: 0.5 }}
-              className={`px-5 py-2 rounded-full text-sm font-bold shadow-lg ${
-                vadStatus === 'listening'     ? 'bg-green-100 text-green-700' :
-                vadStatus === 'user_speaking' ? 'bg-red-100 text-red-600 animate-pulse' :
-                vadStatus === 'thinking'      ? 'bg-yellow-100 text-yellow-700' :
-                vadStatus === 'mimi_speaking' ? 'bg-purple-100 text-purple-700' :
-                vadStatus === 'interrupted'   ? 'bg-cyan-100 text-cyan-700 animate-pulse' :
-                'bg-gray-100 text-gray-500'
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-bold shadow-lg backdrop-blur-sm ${
+                vadStatus === 'listening'     ? 'bg-purple-600/90 text-white' :
+                vadStatus === 'user_speaking' ? 'bg-red-500/90 text-white' :
+                vadStatus === 'thinking'      ? 'bg-amber-500/90 text-white' :
+                vadStatus === 'mimi_speaking' ? 'bg-violet-600/90 text-white' :
+                vadStatus === 'interrupted'   ? 'bg-cyan-500/90 text-white' :
+                'bg-gray-500/80 text-white'
               }`}
             >
-              {vadStatus === 'listening'     && '🎤 Listening...'}
-              {vadStatus === 'user_speaking' && '🔴 Speaking...'}
-              {vadStatus === 'thinking'      && '⏳ Thinking...'}
-              {vadStatus === 'mimi_speaking' && '🔊 Mimi Speaking...'}
-              {vadStatus === 'interrupted'   && '⚡ Got it!'}
-              {vadStatus === 'idle'          && '⚪ Starting...'}
+              <span className="w-2 h-2 rounded-full bg-green-300 inline-block" />
+              {vadStatus === 'listening'     && 'Active'}
+              {vadStatus === 'user_speaking' && 'Speaking...'}
+              {vadStatus === 'thinking'      && 'Thinking...'}
+              {vadStatus === 'mimi_speaking' && 'Mimi Speaking...'}
+              {vadStatus === 'interrupted'   && 'Got it!'}
+              {vadStatus === 'idle'          && 'Starting...'}
             </Motion.div>
             <Motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
               onClick={stopSession}
-              className="px-6 py-3 rounded-full text-white bg-red-500 font-bold shadow-lg">
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/80 backdrop-blur-sm text-gray-700 font-bold shadow text-sm border border-gray-200">
               ⏹ Stop
             </Motion.button>
           </>
         )}
-        <div className={`px-4 py-2 rounded-full text-sm font-bold ${
-          sessionState === 'running'   ? 'bg-green-100 text-green-700'   :
-          sessionState === 'detecting' ? 'bg-yellow-100 text-yellow-700' :
-          sessionState === 'stopped'   ? 'bg-gray-100 text-gray-600'     :
-          'bg-gray-100 text-gray-500'
-        }`}>
-          {sessionState === 'idle'      && '⚪ Ready'}
-          {sessionState === 'detecting' && '📷 Scanning...'}
-          {sessionState === 'running'   && '🟢 Active'}
-          {sessionState === 'stopped'   && '🔴 Stopped'}
-        </div>
+        {(sessionState === 'idle' || sessionState === 'stopped') && (
+          <Motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            onClick={startFaceDetection}
+            className="px-5 py-2.5 rounded-full text-white bg-indigo-600 font-bold shadow-lg text-sm">
+            🎤 Start
+          </Motion.button>
+        )}
       </div>
 
       {/* ── Face Detection Overlay ─────────────────────────────── */}
@@ -1273,34 +1304,51 @@ const MimiChat = () => {
         )}
       </AnimatePresence>
 
-      {/* ── Layout: Mimi left, Response right ─────────────────── */}
-      <div className="absolute inset-0 flex items-end">
+      {/* ── Main Layout: Dialogue above, Mimi centered ─────────── */}
+      <div className="absolute inset-0 flex flex-col items-center justify-end pb-0">
 
-        {/* ── Mimi Character — LEFT ───────────────────────────── */}
-        <MimiCharacter
-          vadStatus={vadStatus}
-          isSpeaking={isSpeaking}
-          sessionState={sessionState}
-        />
+        {/* ── Dialogue column — sits above Mimi, centered ──────── */}
+        <div className="w-full max-w-xl px-4 flex flex-col items-center gap-3 mb-[-20px] z-30">
 
-        {/* ── Response Box — RIGHT ────────────────────────────── */}
-        <div className="flex-1 flex flex-col justify-center z-20 pr-6 pb-8 pl-4"
-          style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+          {/* Audio waveform indicator — only when speaking */}
+          <AnimatePresence>
+            {isSpeaking && (
+              <Motion.div
+                key="waveform"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.25 }}
+                className="flex items-end gap-[3px] h-8"
+              >
+                {[10, 18, 26, 34, 28, 22, 14, 22, 30, 26, 16, 22, 32, 24, 12].map((h, i) => (
+                  <Motion.div
+                    key={i}
+                    className="w-1.5 rounded-full bg-gradient-to-t from-purple-500 to-violet-300"
+                    animate={{ height: [`${h * 0.4}px`, `${h}px`, `${h * 0.6}px`, `${h}px`, `${h * 0.4}px`] }}
+                    transition={{ duration: 0.6 + i * 0.03, repeat: Infinity, ease: 'easeInOut', delay: i * 0.04 }}
+                  />
+                ))}
+              </Motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Speech bubble */}
           <AnimatePresence mode="wait">
             {mimiText && sessionState === 'running' && (
               <Motion.div
                 key="mimi-response"
-                initial={{ opacity: 0, x: 50, scale: 0.95 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 30, scale: 0.97 }}
-                transition={{ type: 'spring', stiffness: 260, damping: 22 }}
-                className="bg-white rounded-3xl shadow-2xl overflow-hidden"
-                style={{ border: '3px solid', borderColor: isSpeaking ? '#a78bfa' : '#e0e7ff' }}
+                initial={{ opacity: 0, y: 20, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 280, damping: 24 }}
+                className="w-full bg-white rounded-3xl shadow-2xl overflow-hidden"
+                style={{ border: '2.5px solid', borderColor: isSpeaking ? '#a78bfa' : '#e0e7ff' }}
               >
-                {/* Mimi label strip */}
-                <div className={`flex items-center gap-2 px-5 py-2.5 ${isSpeaking ? 'bg-purple-100' : 'bg-indigo-50'}`}>
+                {/* Header strip */}
+                <div className={`flex items-center gap-2 px-5 py-2.5 ${isSpeaking ? 'bg-violet-50' : 'bg-indigo-50/80'}`}>
                   <Motion.div
-                    className="text-xl"
+                    className="text-lg"
                     animate={isSpeaking ? { scale: [1, 1.3, 1] } : {}}
                     transition={{ duration: 0.5, repeat: Infinity }}
                   >
@@ -1310,59 +1358,56 @@ const MimiChat = () => {
                     {isSpeaking ? 'Mimi is talking...' : 'Mimi says'}
                   </span>
                   {isTyping && (
-                    <Motion.div
-                      className="ml-auto flex gap-1"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                    >
+                    <div className="ml-auto flex gap-1">
                       {[0, 1, 2].map(i => (
-                        <Motion.div
-                          key={i}
-                          className="w-2 h-2 bg-purple-400 rounded-full"
+                        <Motion.div key={i} className="w-2 h-2 bg-purple-400 rounded-full"
                           animate={{ y: [0, -5, 0] }}
-                          transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15 }}
-                        />
+                          transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15 }} />
                       ))}
-                    </Motion.div>
+                    </div>
                   )}
                 </div>
 
-                <div className="px-6 py-5">
-                  <p className="text-2xl font-semibold text-gray-800 leading-relaxed min-h-[64px]">
+                <div className="px-5 py-4">
+                  <p className="text-xl font-semibold text-gray-800 leading-relaxed">
                     {displayedText}
                     {isTyping && (
                       <Motion.span
-                        className="ml-1 inline-block w-0.5 h-6 bg-purple-400 rounded align-middle"
+                        className="ml-1 inline-block w-0.5 h-5 bg-purple-400 rounded align-middle"
                         animate={{ opacity: [1, 0, 1] }}
                         transition={{ duration: 0.7, repeat: Infinity }}
                       />
                     )}
                   </p>
 
-                  {/* Image — shown immediately, hides when video plays */}
+                  {/* Image */}
                   {imageUrl && !playing && (
-                    <Motion.div
-                      className="mt-4"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
+                    <Motion.div className="mt-3"
+                      initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
                       transition={{ duration: 0.4 }}>
-                      <img src={imageUrl} alt="mimi result"
-                        referrerPolicy="no-referrer"
-                        className="w-full max-h-56 object-cover mx-auto rounded-2xl shadow-lg" />
-                      {ytVideo && (
-                        <p className="text-center text-xs text-purple-500 font-semibold mt-2 animate-pulse">
-                          🎬 Video loading soon...
-                        </p>
-                      )}
+                      <img src={imageUrl} alt="mimi result" referrerPolicy="no-referrer"
+                        className="w-full max-h-48 object-cover mx-auto rounded-2xl shadow-lg" />
                     </Motion.div>
                   )}
 
-                  {/* Video — plays after 5s if image shown, else after 500ms */}
+                  {/* Video pending */}
+                  {ytVideo && !playing && (
+                    <Motion.div className="mt-3 flex flex-col items-center gap-2"
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}>
+                      <p className="text-sm text-purple-600 font-semibold">🎬 I found a video! Want me to play it?</p>
+                      <button
+                        onClick={() => { videoConfirmModeRef.current = false; setPlaying(true) }}
+                        className="flex items-center gap-2 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-full shadow transition-colors">
+                        ▶ Play Video
+                      </button>
+                    </Motion.div>
+                  )}
+
+                  {/* Video playing */}
                   {ytVideo && playing && (
-                    <Motion.div
-                      className="mt-4"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
+                    <Motion.div className="mt-3"
+                      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.4 }}>
                       <iframe
                         src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`}
@@ -1370,54 +1415,56 @@ const MimiChat = () => {
                         allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                         allowFullScreen
                         referrerPolicy="no-referrer-when-downgrade"
-                        className="w-full h-52 rounded-2xl shadow-lg border-0" />
-                      <a
-                        href={`https://www.youtube.com/watch?v=${extractYoutubeId(ytVideo)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block text-center text-xs text-indigo-500 font-semibold mt-1.5 hover:text-indigo-700 underline-offset-2 hover:underline">
+                        className="w-full h-48 rounded-2xl shadow-lg border-0" />
+                      <a href={`https://www.youtube.com/watch?v=${extractYoutubeId(ytVideo)}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="block text-center text-xs text-indigo-500 font-semibold mt-1.5 hover:underline">
                         Watch on YouTube ↗
                       </a>
                     </Motion.div>
                   )}
                 </div>
+
+                {/* Bubble tail pointing down toward Mimi */}
+                <div className="flex justify-center pb-1">
+                  <div className="w-5 h-5 bg-white rotate-45 translate-y-2.5 shadow-[2px_2px_4px_rgba(0,0,0,0.08)]"
+                    style={{ borderRight: '2.5px solid #e0e7ff', borderBottom: '2.5px solid #e0e7ff' }} />
+                </div>
               </Motion.div>
             )}
           </AnimatePresence>
 
-          {/* ── Topic Chips Panel ──────────────────────────────── */}
+          {/* Topic chips — below bubble, above Mimi */}
           <AnimatePresence>
             {showTopics && topicsList.length > 0 && sessionState === 'running' && (
               <Motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={{ duration: 0.3 }}
-                className="mt-4 bg-white/95 rounded-2xl p-4 shadow-xl border border-amber-100">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-black text-amber-700">📚 Topics we've explored</p>
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }} transition={{ duration: 0.25 }}
+                className="w-full bg-white/95 backdrop-blur-sm rounded-2xl p-3.5 shadow-xl border border-amber-100">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-black text-amber-700">📚 Topics we've explored</p>
                   <button onClick={() => setShowTopics(false)} className="text-gray-400 hover:text-gray-600 text-xs font-bold">✕</button>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {topicsList.map((topic, i) => (
-                    <Motion.button
-                      key={i}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        setShowTopics(false)
-                        sendTextToMimi(`Tell me more about ${topic}`)
-                      }}
-                      className="px-3 py-1.5 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 rounded-full text-sm font-bold shadow-sm border border-amber-200 hover:from-amber-200 hover:to-orange-200 transition-colors">
+                    <Motion.button key={i} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                      onClick={() => { setShowTopics(false); sendTextToMimi(`Tell me more about ${topic}`) }}
+                      className="px-3 py-1 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 rounded-full text-xs font-bold shadow-sm border border-amber-200 hover:from-amber-200 hover:to-orange-200 transition-colors">
                       {topic}
                     </Motion.button>
                   ))}
                 </div>
-                <p className="text-xs text-gray-400 mt-2">Tap any topic to explore it deeper!</p>
               </Motion.div>
             )}
           </AnimatePresence>
         </div>
+
+        {/* ── Mimi Character — CENTERED ────────────────────────── */}
+        <MimiCharacter
+          vadStatus={vadStatus}
+          isSpeaking={isSpeaking}
+          sessionState={sessionState}
+        />
       </div>
 
       {/* ── Chat History Sidebar ─────────────────────────────────
@@ -1448,6 +1495,12 @@ function extractYoutubeId(url) {
   const m = url.match(/(youtu\.be\/|v=|embed\/)([A-Za-z0-9_-]{6,})/)
   return m ? m[2] : url
 }
+
+// Detect when the user explicitly asked for a video ("play video of lions", "show me a video")
+const _VIDEO_REQUEST_RE = /\b(play|show|watch|see|display)\b.{0,40}\bvideo\b|\bvideo\b.{0,30}\b(play|show|watch)\b/i
+// Affirmative / negative responses to "shall I play the video?" prompt
+const _YES_VIDEO_RE = /\b(yes|yeah|yep|yup|sure|okay|ok|han|haan|ha|indeed|go ahead|play|show it|show me|play it|of course|definitely|absolutely|chalao|chala do|dikha do|dekho|haan ji|bilkul)\b/i
+const _NO_VIDEO_RE  = /\b(no|nahi|nope|nah|don'?t|skip|not now|cancel|ruk|ruko|mat|nahin)\b/i
 
 export default MimiChat
 
