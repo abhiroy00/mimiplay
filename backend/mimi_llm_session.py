@@ -676,14 +676,20 @@ class MimiLLMSession:
             "math, abstract ideas, follow-up clarifying questions, or anything with no single concrete visual subject."
         )
 
+        json_format = (
+            'OUTPUT FORMAT — respond with ONLY a JSON object, no text outside it:\n'
+            '{"text":"<your reply>","image_search_term":"<blank or search>","youtube_search_term":"<blank or search> for kids explained","topic":"<blank or topic>"}'
+        )
+
         prompt = (
+            f"{json_format}\n\n"
             f"{memory_prompt}\n\n{playful_prompt}\n\n"
             f"Current memory context:\n{memory_context}"
             f"{realtime_block}\n\n"
             f'RULES: Always say {name}\'s name somewhere in text. Vary openers. 1 cool fact. End with 1 question. Max 35 words in text. '
             f'Fill image_search_term AND youtube_search_term for any named thing, animal, place, or topic.\n'
-            f"{media_rule}\n"
-            f'REPLY AS JSON ONLY: {{"text":"...","image_search_term":"...","youtube_search_term":"... for kids explained","topic":"..."}}'
+            f"{media_rule}\n\n"
+            f"IMPORTANT: Output ONLY the JSON object above — no explanations, no prose before or after the JSON."
         )
         return prompt, 250
 
@@ -706,6 +712,7 @@ class MimiLLMSession:
                 messages=messages,
                 temperature=0.8,
                 max_tokens=max_tokens,
+                response_format={"type": "json_object"},
             )
             return resp.choices[0].message.content or None
         except Exception as e:
@@ -739,13 +746,20 @@ class MimiLLMSession:
     def _parse_json_response(self, text):
         if not text:
             return None
+        start = text.find("{")
+        end   = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        json_str = text[start:end + 1]
         try:
-            start = text.find("{")
-            end   = text.rfind("}")
-            if start != -1 and end != -1 and end > start:
-                return json.loads(text[start:end + 1])
-        except Exception as e:
-            logger.warning("Failed to parse JSON from LLM response: %s", e)
+            return json.loads(json_str)
+        except Exception:
+            pass
+        # Last resort: if JSON is truncated, try to at least extract the text field
+        extracted = _try_extract_text(json_str)
+        if extracted:
+            return {"text": extracted, "image_search_term": "", "youtube_search_term": "", "topic": ""}
+        logger.warning("Failed to parse JSON from LLM response: %s", text[:120])
         return None
 
     def _fetch_wikimedia_image(self, search_term):
@@ -832,6 +846,7 @@ class MimiLLMSession:
                 temperature=0.8,
                 max_tokens=max_tokens,
                 stream=True,
+                response_format={"type": "json_object"},
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta.content
@@ -851,7 +866,12 @@ class MimiLLMSession:
             return None
 
         data = self._parse_json_response(full_text)
-        resp_text = (data.get("text") if data else None) or tts_text or full_text.strip()
+        # Never fall back to raw full_text — if JSON parse failed, use early-extracted
+        # text. If that's also missing, use prose before the first '{' (strips JSON scaffold).
+        if not data and not tts_text:
+            brace = full_text.find("{")
+            tts_text = (full_text[:brace].strip() if brace > 0 else full_text.strip()) or None
+        resp_text = (data.get("text") if data else None) or tts_text or "I'm thinking, ask me again!"
         topic     = (data.get("topic") if data else "") or ""
         search    = (data.get("image_search_term") if data else "") or ""
         yt_search = (data.get("youtube_search_term") if data else "") or search or topic
