@@ -1394,88 +1394,59 @@ const MimiChat = () => {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 16 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 26 }}
-                className="mx-3 sm:mx-6 mb-3 sm:mb-4"
+                className="mx-3 sm:mx-8 mb-4 sm:mb-6"
               >
-                <div
-                  className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden"
-                  style={{ border: '2px solid', borderColor: isSpeaking ? '#a78bfa' : '#e0e7ff' }}
-                >
-                  {/* Header */}
-                  <div className={`flex items-center gap-2 px-4 py-2 ${isSpeaking ? 'bg-violet-50' : 'bg-indigo-50/80'}`}>
-                    <Motion.div
-                      className="text-sm sm:text-base"
-                      animate={isSpeaking ? { scale: [1, 1.3, 1] } : {}}
-                      transition={{ duration: 0.5, repeat: Infinity }}
-                    >
-                      {isSpeaking ? '🔊' : '💬'}
+                {/* Caption box — no header, subtitle style */}
+                <div className="bg-black/65 backdrop-blur-sm rounded-2xl px-4 sm:px-6 py-3 sm:py-4 text-center">
+                  {mimiText && (
+                    <p className="text-base sm:text-xl md:text-2xl font-extrabold leading-snug tracking-wide">
+                      {(() => {
+                        // Karaoke: split by word, colour based on typewriter progress
+                        const words = mimiText.split(' ')
+                        let charPos = 0
+                        return words.map((word, i) => {
+                          const start = charPos
+                          const end   = charPos + word.length
+                          charPos = end + 1 // +1 for space
+                          const typed = displayedText.length
+                          let cls
+                          if (typed >= end)    cls = 'text-white'           // spoken
+                          else if (typed > start) cls = 'text-yellow-300'   // current word
+                          else                 cls = 'text-white/30'        // upcoming
+                          return (
+                            <span key={i} className={`${cls} transition-colors duration-100`}>
+                              {word}{i < words.length - 1 ? ' ' : ''}
+                            </span>
+                          )
+                        })
+                      })()}
+                    </p>
+                  )}
+
+                  {/* Image */}
+                  {imageUrl && !playing && (
+                    <Motion.div className="mt-3"
+                      initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.4 }}>
+                      <img src={imageUrl} alt="mimi result" referrerPolicy="no-referrer"
+                        className="w-full max-h-28 sm:max-h-40 object-cover mx-auto rounded-xl shadow-lg" />
                     </Motion.div>
-                    <span className="text-xs font-black text-purple-700 tracking-wide">
-                      {isSpeaking ? 'Mimi is talking...' : 'Mimi says'}
-                    </span>
-                    {/* Mini waveform in header when speaking */}
-                    {isSpeaking && (
-                      <div className="ml-auto flex items-end gap-[2px] h-4">
-                        {[5, 9, 13, 9, 7, 11, 7].map((h, i) => (
-                          <Motion.div
-                            key={i}
-                            className="w-[3px] rounded-full bg-purple-400"
-                            animate={{ height: [`${h * 0.4}px`, `${h}px`, `${h * 0.6}px`] }}
-                            transition={{ duration: 0.45 + i * 0.05, repeat: Infinity, ease: 'easeInOut', delay: i * 0.05 }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {isTyping && !isSpeaking && (
-                      <div className="ml-auto flex gap-1">
-                        {[0, 1, 2].map(i => (
-                          <Motion.div key={i} className="w-1.5 h-1.5 bg-purple-400 rounded-full"
-                            animate={{ y: [0, -3, 0] }}
-                            transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15 }} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  )}
 
-                  {/* Content */}
-                  <div className="px-4 py-3 max-h-[22vh] sm:max-h-[26vh] overflow-y-auto">
-                    {mimiText && (
-                      <p className="text-sm sm:text-base md:text-lg font-semibold text-gray-800 leading-relaxed">
-                        {displayedText}
-                        {isTyping && (
-                          <Motion.span
-                            className="ml-1 inline-block w-0.5 h-4 sm:h-5 bg-purple-400 rounded align-middle"
-                            animate={{ opacity: [1, 0, 1] }}
-                            transition={{ duration: 0.7, repeat: Infinity }}
-                          />
-                        )}
-                      </p>
-                    )}
-
-                    {/* Image */}
-                    {imageUrl && !playing && (
-                      <Motion.div className="mt-2"
-                        initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-                        transition={{ duration: 0.4 }}>
-                        <img src={imageUrl} alt="mimi result" referrerPolicy="no-referrer"
-                          className="w-full max-h-28 sm:max-h-40 object-cover mx-auto rounded-xl shadow-lg" />
-                      </Motion.div>
-                    )}
-
-                    {/* Video pending confirmation */}
-                    {ytVideo && !playing && (
-                      <Motion.div className="mt-2 flex flex-col items-center gap-2"
-                        initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3 }}>
-                        <p className="text-xs sm:text-sm text-purple-600 font-semibold">🎬 I found a video! Want me to play it?</p>
-                        <button
-                          onClick={() => { videoConfirmModeRef.current = false; setPlaying(true) }}
-                          className="flex items-center gap-2 px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm font-bold rounded-full shadow transition-colors">
-                          ▶ Play Video
-                        </button>
+                  {/* Video pending confirmation */}
+                  {ytVideo && !playing && (
+                    <Motion.div className="mt-3 flex flex-col items-center gap-2"
+                      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}>
+                      <p className="text-xs sm:text-sm text-yellow-200 font-semibold">🎬 I found a video! Want me to play it?</p>
+                      <button
+                        onClick={() => { videoConfirmModeRef.current = false; setPlaying(true) }}
+                        className="flex items-center gap-2 px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm font-bold rounded-full shadow transition-colors">
+                        ▶ Play Video
+                      </button>
                       </Motion.div>
                     )}
                   </div>
-                </div>
               </Motion.div>
             )}
           </AnimatePresence>

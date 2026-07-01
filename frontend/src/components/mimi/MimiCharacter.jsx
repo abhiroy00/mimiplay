@@ -103,7 +103,7 @@ const Sparkles = ({ emojis, trigger }) => (
     {trigger && emojis.map((emoji, i) => (
       <motion.div
         key={`${emoji}-${i}`}
-        className="absolute pointer-events-none select-none z-40 text-xl"
+        className="absolute pointer-events-none select-none z-40 text-sm sm:text-lg lg:text-xl"
         style={{ left: `${15 + i * 25}%`, top: `${8 + (i % 3) * 10}%` }}
         initial={{ opacity: 0, y: 0, scale: 0.4 }}
         animate={{ opacity: [0, 1, 1, 0], y: -40, scale: [0.4, 1.3, 1.1, 0.6] }}
@@ -183,12 +183,12 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
 
         {/* Idle sparkles scattered around the character */}
         {(sessionState !== 'running' || vadStatus === 'idle') && [
-          { emoji: '✨', top: '8%',  left: '10%', delay: 0,   size: 'text-3xl' },
-          { emoji: '⭐', top: '15%', left: '82%', delay: 1.2, size: 'text-2xl' },
-          { emoji: '✨', top: '55%', left: '88%', delay: 2.4, size: 'text-xl'  },
-          { emoji: '💫', top: '70%', left: '5%',  delay: 0.8, size: 'text-2xl' },
-          { emoji: '✨', top: '35%', left: '92%', delay: 3.0, size: 'text-lg'  },
-          { emoji: '⭐', top: '80%', left: '78%', delay: 1.8, size: 'text-xl'  },
+          { emoji: '✨', top: '8%',  left: '10%', delay: 0,   size: 'text-base sm:text-2xl lg:text-3xl' },
+          { emoji: '⭐', top: '15%', left: '82%', delay: 1.2, size: 'text-sm sm:text-xl lg:text-2xl'   },
+          { emoji: '✨', top: '55%', left: '88%', delay: 2.4, size: 'text-xs sm:text-base lg:text-xl'  },
+          { emoji: '💫', top: '70%', left: '5%',  delay: 0.8, size: 'text-sm sm:text-xl lg:text-2xl'  },
+          { emoji: '✨', top: '35%', left: '92%', delay: 3.0, size: 'text-xs sm:text-sm lg:text-lg'   },
+          { emoji: '⭐', top: '80%', left: '78%', delay: 1.8, size: 'text-xs sm:text-base lg:text-xl' },
         ].map((s, i) => (
           <motion.div
             key={`idle-spark-${i}`}
