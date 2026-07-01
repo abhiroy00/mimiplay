@@ -922,10 +922,6 @@ const MimiChat = () => {
 
         // ── Normal listening ──────────────────────────────────────────
         if (result.isFinal) {
-          // Discard if confidence is very low (background noise mis-transcribed)
-          // confidence is 0 when unavailable — only reject if explicitly < 0.4
-          const conf = result[0].confidence
-          if (conf > 0 && conf < 0.4) return
           // Discard pure noise / filler tokens
           if (_isNoise(transcript)) return
           _sendNow(transcript)
@@ -945,14 +941,7 @@ const MimiChat = () => {
       if (e.error === 'no-speech') return
       if (e.error === 'aborted')   return
       console.warn('[Speech]', e.error)
-      // Network error: Chrome's WebSocket to Google dropped — restart after 1s
-      if (e.error === 'network' && sessionIdRef.current) {
-        setTimeout(() => {
-          if (sessionIdRef.current && !isMimiSpeakingRef.current && startVADRef.current) {
-            startVADRef.current()
-          }
-        }, 1000)
-      }
+      // onend will always fire after onerror — let it handle the restart
     }
 
     recognition.onend = () => {
@@ -968,9 +957,14 @@ const MimiChat = () => {
       }
       if (pendingText.trim() && !isMimiSpeakingRef.current) _sendNow(pendingText)
       pendingText = ''
-      // Restart immediately — recognitionRef guard prevents duplicate restarts
+      // Restart recognition if this session is still the active one
       if (sessionIdRef.current && !isMimiSpeakingRef.current && recognitionRef.current === recognition) {
-        try { recognition.start() } catch { if (startVADRef.current) startVADRef.current() }
+        // 150ms pause prevents tight crash-loop if Chrome keeps erroring
+        setTimeout(() => {
+          if (sessionIdRef.current && !isMimiSpeakingRef.current) {
+            try { recognition.start() } catch { if (startVADRef.current) startVADRef.current() }
+          }
+        }, 150)
       }
     }
 
@@ -1350,168 +1344,167 @@ const MimiChat = () => {
         )}
       </AnimatePresence>
 
-      {/* ── Main Layout: Dialogue above, Mimi centered ─────────── */}
-      <div className="absolute inset-0 flex flex-col items-center justify-end pb-0">
+      {/* ── Main Layout: Mimi centered, video above her, text at bottom ── */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
 
-        {/* ── Dialogue column — sits above Mimi, centered ──────── */}
-        <div className="w-full max-w-[95vw] sm:max-w-[85vw] md:max-w-[75vw] lg:max-w-[72vw] px-3 sm:px-4 flex flex-col items-center gap-2 sm:gap-3 mb-[-12px] sm:mb-[-20px] z-30">
+        {/* ── Video panel — floats above character when playing ──── */}
+        <AnimatePresence>
+          {ytVideo && playing && (
+            <Motion.div
+              key="video-panel"
+              initial={{ opacity: 0, y: 16, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.94 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+              className="z-30 w-full max-w-[320px] sm:max-w-[460px] md:max-w-[540px] px-3 sm:px-0 mb-2 sm:mb-3"
+            >
+              <div className="rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/40">
+                <iframe
+                  src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`}
+                  title="YouTube video"
+                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                  allowFullScreen
+                  referrerPolicy="no-referrer-when-downgrade"
+                  className="w-full h-[175px] sm:h-[240px] md:h-[280px] border-0 block"
+                />
+              </div>
+              <a href={`https://www.youtube.com/watch?v=${extractYoutubeId(ytVideo)}`}
+                target="_blank" rel="noopener noreferrer"
+                className="block text-center text-xs text-white/80 font-semibold mt-1 hover:underline drop-shadow">
+                Watch on YouTube ↗
+              </a>
+            </Motion.div>
+          )}
+        </AnimatePresence>
 
-          {/* Audio waveform indicator — only when speaking */}
-          <AnimatePresence>
-            {isSpeaking && (
-              <Motion.div
-                key="waveform"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 6 }}
-                transition={{ duration: 0.25 }}
-                className="flex items-end gap-[3px] h-8"
-              >
-                {[10, 18, 26, 34, 28, 22, 14, 22, 30, 26, 16, 22, 32, 24, 12].map((h, i) => (
-                  <Motion.div
-                    key={i}
-                    className="w-1.5 rounded-full bg-gradient-to-t from-purple-500 to-violet-300"
-                    animate={{ height: [`${h * 0.4}px`, `${h}px`, `${h * 0.6}px`, `${h}px`, `${h * 0.4}px`] }}
-                    transition={{ duration: 0.6 + i * 0.03, repeat: Infinity, ease: 'easeInOut', delay: i * 0.04 }}
-                  />
-                ))}
-              </Motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Speech bubble */}
-          <AnimatePresence mode="wait">
-            {mimiText && sessionState === 'running' && (
-              <Motion.div
-                key="mimi-response"
-                initial={{ opacity: 0, y: 20, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.97 }}
-                transition={{ type: 'spring', stiffness: 280, damping: 24 }}
-                className="w-full bg-white rounded-3xl shadow-2xl overflow-hidden"
-                style={{ border: '2.5px solid', borderColor: isSpeaking ? '#a78bfa' : '#e0e7ff' }}
-              >
-                {/* Header strip */}
-                <div className={`flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 ${isSpeaking ? 'bg-violet-50' : 'bg-indigo-50/80'}`}>
-                  <Motion.div
-                    className="text-base sm:text-lg"
-                    animate={isSpeaking ? { scale: [1, 1.3, 1] } : {}}
-                    transition={{ duration: 0.5, repeat: Infinity }}
-                  >
-                    {isSpeaking ? '🔊' : '💬'}
-                  </Motion.div>
-                  <span className="text-xs sm:text-sm font-black text-purple-700 tracking-wide">
-                    {isSpeaking ? 'Mimi is talking...' : 'Mimi says'}
-                  </span>
-                  {isTyping && (
-                    <div className="ml-auto flex gap-1">
-                      {[0, 1, 2].map(i => (
-                        <Motion.div key={i} className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-purple-400 rounded-full"
-                          animate={{ y: [0, -4, 0] }}
-                          transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15 }} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="px-4 sm:px-5 py-3 sm:py-4 max-h-[30vh] sm:max-h-[38vh] overflow-y-auto">
-                  <p className="text-base sm:text-lg md:text-xl font-semibold text-gray-800 leading-relaxed">
-                    {displayedText}
-                    {isTyping && (
-                      <Motion.span
-                        className="ml-1 inline-block w-0.5 h-5 bg-purple-400 rounded align-middle"
-                        animate={{ opacity: [1, 0, 1] }}
-                        transition={{ duration: 0.7, repeat: Infinity }}
-                      />
-                    )}
-                  </p>
-
-                  {/* Image */}
-                  {imageUrl && !playing && (
-                    <Motion.div className="mt-3"
-                      initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.4 }}>
-                      <img src={imageUrl} alt="mimi result" referrerPolicy="no-referrer"
-                        className="w-full max-h-32 sm:max-h-48 object-cover mx-auto rounded-xl sm:rounded-2xl shadow-lg" />
-                    </Motion.div>
-                  )}
-
-                  {/* Video pending */}
-                  {ytVideo && !playing && (
-                    <Motion.div className="mt-3 flex flex-col items-center gap-2"
-                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}>
-                      <p className="text-sm text-purple-600 font-semibold">🎬 I found a video! Want me to play it?</p>
-                      <button
-                        onClick={() => { videoConfirmModeRef.current = false; setPlaying(true) }}
-                        className="flex items-center gap-2 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-full shadow transition-colors">
-                        ▶ Play Video
-                      </button>
-                    </Motion.div>
-                  )}
-
-                  {/* Video playing */}
-                  {ytVideo && playing && (
-                    <Motion.div className="mt-3"
-                      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.4 }}>
-                      <iframe
-                        src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`}
-                        title="YouTube video"
-                        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                        allowFullScreen
-                        referrerPolicy="no-referrer-when-downgrade"
-                        className="w-full h-36 sm:h-48 rounded-xl sm:rounded-2xl shadow-lg border-0" />
-                      <a href={`https://www.youtube.com/watch?v=${extractYoutubeId(ytVideo)}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="block text-center text-xs text-indigo-500 font-semibold mt-1.5 hover:underline">
-                        Watch on YouTube ↗
-                      </a>
-                    </Motion.div>
-                  )}
-                </div>
-
-                {/* Bubble tail pointing down toward Mimi */}
-                <div className="flex justify-center pb-1">
-                  <div className="w-5 h-5 bg-white rotate-45 translate-y-2.5 shadow-[2px_2px_4px_rgba(0,0,0,0.08)]"
-                    style={{ borderRight: '2.5px solid #e0e7ff', borderBottom: '2.5px solid #e0e7ff' }} />
-                </div>
-              </Motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Topic chips — below bubble, above Mimi */}
-          <AnimatePresence>
-            {showTopics && topicsList.length > 0 && sessionState === 'running' && (
-              <Motion.div
-                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }} transition={{ duration: 0.25 }}
-                className="w-full bg-white/95 backdrop-blur-sm rounded-2xl p-3.5 shadow-xl border border-amber-100">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-black text-amber-700">📚 Topics we've explored</p>
-                  <button onClick={() => setShowTopics(false)} className="text-gray-400 hover:text-gray-600 text-xs font-bold">✕</button>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {topicsList.map((topic, i) => (
-                    <Motion.button key={i} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                      onClick={() => { setShowTopics(false); sendTextToMimi(`Tell me more about ${topic}`) }}
-                      className="px-3 py-1 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 rounded-full text-xs font-bold shadow-sm border border-amber-200 hover:from-amber-200 hover:to-orange-200 transition-colors">
-                      {topic}
-                    </Motion.button>
-                  ))}
-                </div>
-              </Motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* ── Mimi Character — CENTERED ────────────────────────── */}
+        {/* ── Mimi Character — centered ─────────────────────────── */}
         <MimiCharacter
           vadStatus={vadStatus}
           isSpeaking={isSpeaking}
           sessionState={sessionState}
         />
+
+        {/* ── Bottom text bar — pinned to bottom of screen ──────── */}
+        <div className="absolute bottom-0 left-0 right-0 z-30">
+          <AnimatePresence mode="wait">
+            {sessionState === 'running' && (mimiText || (ytVideo && !playing)) && (
+              <Motion.div
+                key="bottom-bar"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 16 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+                className="mx-3 sm:mx-6 mb-3 sm:mb-4"
+              >
+                <div
+                  className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden"
+                  style={{ border: '2px solid', borderColor: isSpeaking ? '#a78bfa' : '#e0e7ff' }}
+                >
+                  {/* Header */}
+                  <div className={`flex items-center gap-2 px-4 py-2 ${isSpeaking ? 'bg-violet-50' : 'bg-indigo-50/80'}`}>
+                    <Motion.div
+                      className="text-sm sm:text-base"
+                      animate={isSpeaking ? { scale: [1, 1.3, 1] } : {}}
+                      transition={{ duration: 0.5, repeat: Infinity }}
+                    >
+                      {isSpeaking ? '🔊' : '💬'}
+                    </Motion.div>
+                    <span className="text-xs font-black text-purple-700 tracking-wide">
+                      {isSpeaking ? 'Mimi is talking...' : 'Mimi says'}
+                    </span>
+                    {/* Mini waveform in header when speaking */}
+                    {isSpeaking && (
+                      <div className="ml-auto flex items-end gap-[2px] h-4">
+                        {[5, 9, 13, 9, 7, 11, 7].map((h, i) => (
+                          <Motion.div
+                            key={i}
+                            className="w-[3px] rounded-full bg-purple-400"
+                            animate={{ height: [`${h * 0.4}px`, `${h}px`, `${h * 0.6}px`] }}
+                            transition={{ duration: 0.45 + i * 0.05, repeat: Infinity, ease: 'easeInOut', delay: i * 0.05 }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {isTyping && !isSpeaking && (
+                      <div className="ml-auto flex gap-1">
+                        {[0, 1, 2].map(i => (
+                          <Motion.div key={i} className="w-1.5 h-1.5 bg-purple-400 rounded-full"
+                            animate={{ y: [0, -3, 0] }}
+                            transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15 }} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div className="px-4 py-3 max-h-[22vh] sm:max-h-[26vh] overflow-y-auto">
+                    {mimiText && (
+                      <p className="text-sm sm:text-base md:text-lg font-semibold text-gray-800 leading-relaxed">
+                        {displayedText}
+                        {isTyping && (
+                          <Motion.span
+                            className="ml-1 inline-block w-0.5 h-4 sm:h-5 bg-purple-400 rounded align-middle"
+                            animate={{ opacity: [1, 0, 1] }}
+                            transition={{ duration: 0.7, repeat: Infinity }}
+                          />
+                        )}
+                      </p>
+                    )}
+
+                    {/* Image */}
+                    {imageUrl && !playing && (
+                      <Motion.div className="mt-2"
+                        initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.4 }}>
+                        <img src={imageUrl} alt="mimi result" referrerPolicy="no-referrer"
+                          className="w-full max-h-28 sm:max-h-40 object-cover mx-auto rounded-xl shadow-lg" />
+                      </Motion.div>
+                    )}
+
+                    {/* Video pending confirmation */}
+                    {ytVideo && !playing && (
+                      <Motion.div className="mt-2 flex flex-col items-center gap-2"
+                        initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}>
+                        <p className="text-xs sm:text-sm text-purple-600 font-semibold">🎬 I found a video! Want me to play it?</p>
+                        <button
+                          onClick={() => { videoConfirmModeRef.current = false; setPlaying(true) }}
+                          className="flex items-center gap-2 px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm font-bold rounded-full shadow transition-colors">
+                          ▶ Play Video
+                        </button>
+                      </Motion.div>
+                    )}
+                  </div>
+                </div>
+              </Motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
+
+      {/* ── Topic chips overlay ──────────────────────────────────── */}
+      <AnimatePresence>
+        {showTopics && topicsList.length > 0 && sessionState === 'running' && (
+          <Motion.div
+            initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }}
+            className="absolute top-14 sm:top-16 right-3 sm:right-5 z-40 w-64 sm:w-72 bg-white/95 backdrop-blur-sm rounded-2xl p-3.5 shadow-xl border border-amber-100">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-black text-amber-700">📚 Topics we've explored</p>
+              <button onClick={() => setShowTopics(false)} className="text-gray-400 hover:text-gray-600 text-xs font-bold">✕</button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {topicsList.map((topic, i) => (
+                <Motion.button key={i} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                  onClick={() => { setShowTopics(false); sendTextToMimi(`Tell me more about ${topic}`) }}
+                  className="px-3 py-1 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 rounded-full text-xs font-bold shadow-sm border border-amber-200 hover:from-amber-200 hover:to-orange-200 transition-colors">
+                  {topic}
+                </Motion.button>
+              ))}
+            </div>
+          </Motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Chat History Sidebar ─────────────────────────────────
       {chatHistory.length > 0 && sessionState === 'running' && (
