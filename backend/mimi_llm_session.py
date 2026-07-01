@@ -10,6 +10,7 @@ from extensions import db as _ext_db
 logger = logging.getLogger(__name__)
 
 _mimi_chats = _ext_db["mimi_chats"]
+_qa_memory  = _ext_db["qa_memory"]   # one doc per Q&A turn, embedded for semantic recall
 
 # Advanced memory system (optional - falls back gracefully)
 try:
@@ -46,6 +47,23 @@ def _get_anthropic_singleton(api_key: str):
     if _anthropic_singleton is None and _anthropic_sdk and api_key:
         _anthropic_singleton = _anthropic_sdk.Anthropic(api_key=api_key, timeout=8.0)
     return _anthropic_singleton
+
+
+_EMBEDDING_MODEL = "text-embedding-3-small"  # 1536 dims, cheap — used for semantic recall only
+
+def _embed_text(text: str, api_key: str):
+    """Return an embedding vector for `text`, or None on any failure (caller degrades gracefully)."""
+    if not text or not _openai_sdk or not api_key:
+        return None
+    try:
+        client = _get_openai_singleton(api_key)
+        if not client:
+            return None
+        resp = client.embeddings.create(model=_EMBEDDING_MODEL, input=text[:8000])
+        return resp.data[0].embedding
+    except Exception as e:
+        logger.warning("[Embed] Failed to embed text: %s", e)
+        return None
 
 
 # Regex to extract the "text" field from partial streaming JSON.
@@ -235,6 +253,40 @@ class MimiLLMSession:
             except Exception as e:
                 logger.error("[LTM] Failed: %s", e)
 
+        # ── LONG-TERM SUMMARY: fold in the richer LLM-authored session summary ─
+        # session_summaries is written by _generate_and_save_summary() on every
+        # farewell, but was never read back until now — this is that read.
+        if self.student_name:
+            try:
+                recent_summaries = list(_ext_db["session_summaries"].find(
+                    {"student_name": {"$regex": f"^{self.student_name}$", "$options": "i"}},
+                    sort=[("created_at", -1)],
+                    limit=2,
+                ))
+                if recent_summaries:
+                    summary_parts = []
+                    key_facts: list = []
+                    for doc in recent_summaries:
+                        s = (doc.get("summary") or "").strip()
+                        if s:
+                            summary_parts.append(f"({doc.get('session_date', '')}) {s}")
+                        for f in doc.get("key_facts", []):
+                            if f and f not in key_facts:
+                                key_facts.append(f)
+                    extra = []
+                    if summary_parts:
+                        extra.append("Recent session summaries: " + " ".join(summary_parts))
+                    if key_facts:
+                        extra.append("Things already taught: " + "; ".join(key_facts[:8]))
+                    if extra:
+                        self.long_term_summary = (
+                            (self.long_term_summary + " | " if self.long_term_summary else "")
+                            + " | ".join(extra)
+                        )
+                        logger.info("[LTM] Folded in %d session summaries", len(recent_summaries))
+            except Exception as e:
+                logger.error("[LTM] session_summaries read failed: %s", e)
+
         # ── STUDENT PROFILE: load persisted facts from student_profiles ───────
         self._load_student_profile()
 
@@ -337,12 +389,20 @@ class MimiLLMSession:
                         return history[j]["content"], history[i]["content"]
         return None, None
 
-    def _search_qa_by_topic(self, keyword: str):
+    # Vector search score is Atlas's normalized similarity (~0-1 for cosine metric).
+    # Below this, treat it as "no real match" rather than returning a bad guess.
+    _VECTOR_RECALL_MIN_SCORE = 0.70
+
+    def _search_qa_by_topic(self, keyword: str, full_query: str = None):
         """
-        Search current session history first, then past MongoDB sessions, for a
-        user question containing `keyword`.  Returns (question, answer) or (None, None).
+        Search current session history first (exact keyword, instant), then past
+        sessions via semantic vector search over qa_memory (falls back to the old
+        regex search over mimi_chats if the search index isn't ready yet or the
+        embedding call fails). Returns (question, answer) or (None, None).
         """
-        # 1. Current session (in-memory, instant)
+        full_query = full_query or keyword
+
+        # 1. Current session (in-memory, instant, exact keyword match)
         for i, msg in enumerate(self.conversation_history):
             if msg["role"] == "user" and keyword in msg["content"].lower():
                 # get the assistant reply that follows
@@ -350,7 +410,32 @@ class MimiLLMSession:
                     if self.conversation_history[j]["role"] == "assistant":
                         return msg["content"], self.conversation_history[j]["content"]
 
-        # 2. Past sessions (MongoDB)
+        # 2. Past sessions — semantic vector search (understands paraphrases, not just exact words)
+        if self.student_id:
+            try:
+                vector = _embed_text(full_query, self.openai_key)
+                if vector:
+                    results = list(_qa_memory.aggregate([
+                        {"$vectorSearch": {
+                            "index":         "qa_memory_vector_index",
+                            "path":          "embedding",
+                            "queryVector":   vector,
+                            "numCandidates": 50,
+                            "limit":         1,
+                            "filter":        {"student_id": self.student_id},
+                        }},
+                        {"$project": {"question": 1, "answer": 1, "_id": 0,
+                                      "score": {"$meta": "vectorSearchScore"}}},
+                    ]))
+                    if results and results[0].get("score", 0) >= self._VECTOR_RECALL_MIN_SCORE:
+                        logger.info("[VectorRecall] Match score=%.3f for query=%r",
+                                    results[0]["score"], full_query[:60])
+                        return results[0].get("question"), results[0].get("answer")
+            except Exception as e:
+                logger.warning("[VectorRecall] Search failed, falling back to keyword search: %s", e)
+
+        # 3. Fallback — exact regex keyword search over mimi_chats (covers sessions from
+        #    before qa_memory existed, and degrades gracefully if the vector index is missing)
         if self.student_name:
             try:
                 past = list(_mimi_chats.find(
@@ -369,9 +454,32 @@ class MimiLLMSession:
                         if q and a and keyword in q.lower():
                             return q, a
             except Exception as e:
-                logger.error("[Recall] MongoDB search failed: %s", e)
+                logger.error("[Recall] MongoDB regex search failed: %s", e)
 
         return None, None
+
+    def _embed_and_store_qa(self, question: str, answer: str, topic: str = ""):
+        """
+        Embed a Q&A turn and store it in qa_memory for later semantic recall.
+        Runs in a background daemon thread — never blocks the response path.
+        """
+        try:
+            vector = _embed_text(question, self.openai_key)
+            if not vector:
+                return
+            _qa_memory.insert_one({
+                "student_id":   self.student_id,
+                "student_name": self.student_name,
+                "session_id":   self.session_id,
+                "question":     question,
+                "answer":       answer,
+                "topic":        topic or "",
+                "embedding":    vector,
+                "created_at":   datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info("[QAEmbed] Stored embedded Q&A for %s", self.student_name)
+        except Exception as e:
+            logger.warning("[QAEmbed] Failed: %s", e)
 
     def _build_recall_response(self, question: str, answer: str) -> str:
         import random
@@ -479,6 +587,87 @@ class MimiLLMSession:
                         self.student_name, self.session_id, data.get("topics"))
         except Exception as e:
             logger.error("[Summary] MongoDB save failed: %s", e)
+
+    def _extract_and_update_profile(self, history_snapshot: list):
+        """
+        Extract structured student facts (interests/struggling topics/strengths) from a
+        session's conversation via Claude Haiku, then merge into student_profiles.
+        Runs in a background daemon thread — any failure is logged and swallowed.
+        Skipped if < 4 messages (not enough signal) or no student_id.
+        """
+        if not self.student_id or not history_snapshot or len(history_snapshot) < 4:
+            return
+        try:
+            turns = history_snapshot[-20:]
+            transcript_lines = []
+            for turn in turns:
+                role = "Child" if turn.get("role") == "user" else "Mimi"
+                transcript_lines.append(f"{role}: {turn.get('content', '')[:200]}")
+            transcript = "\n".join(transcript_lines)
+
+            prompt = (
+                f"You are analyzing a conversation between an AI tutor named Mimi and a child named {self.student_name}.\n"
+                "Extract structured information about the child from this conversation.\n\n"
+                f"Conversation:\n{transcript}\n\n"
+                "Return ONLY valid JSON with these exact keys (use empty arrays/objects if no data found):\n"
+                '{"interests":["list of topics the child showed interest in, max 10"],'
+                '"struggling_topics":["topics the child found difficult, max 5"],'
+                '"progress":{"strengths":["things the child did well, max 5"],'
+                '"areas_to_improve":["areas needing improvement, max 5"]}}\n\n'
+                "Only include facts clearly evidenced in the conversation. Do not infer or guess."
+            )
+
+            if not _anthropic_sdk or not self.anthropic_key:
+                logger.debug("[Profile] Anthropic unavailable — skipping profile extraction")
+                return
+
+            client = _get_anthropic_singleton(self.anthropic_key)
+            if not client:
+                return
+
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=400,
+                temperature=0.1,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = resp.content[0].text or ""
+            clean = re.sub(r"```[a-z]*", "", raw).replace("```", "").strip()
+            extracted = json.loads(clean)
+
+            if not isinstance(extracted, dict):
+                logger.warning("[Profile] Haiku returned non-dict for %s", self.student_name)
+                return
+
+            now = datetime.now(timezone.utc)
+
+            interests        = [s for s in extracted.get("interests", [])                       if isinstance(s, str)][:10]
+            struggling       = [s for s in extracted.get("struggling_topics", [])               if isinstance(s, str)][:5]
+            strengths        = [s for s in extracted.get("progress", {}).get("strengths", [])   if isinstance(s, str)][:5]
+            areas_to_improve = [s for s in extracted.get("progress", {}).get("areas_to_improve", []) if isinstance(s, str)][:5]
+
+            update: dict = {
+                "$set": {"name": self.student_name, "last_session_date": now.isoformat(), "updated_at": now.isoformat()},
+                "$inc": {"total_sessions": 1},
+            }
+            add_to_set: dict = {}
+            if interests:        add_to_set["interests"]               = {"$each": interests}
+            if struggling:       add_to_set["struggling_topics"]       = {"$each": struggling}
+            if strengths:        add_to_set["progress.strengths"]      = {"$each": strengths}
+            if areas_to_improve: add_to_set["progress.areas_to_improve"] = {"$each": areas_to_improve}
+            if add_to_set:
+                update["$addToSet"] = add_to_set
+
+            _ext_db["student_profiles"].update_one(
+                {"student_id": self.student_id},
+                update,
+                upsert=True,
+            )
+            logger.info("[Profile] Updated profile for %s (interests=%d, struggling=%d)",
+                        self.student_name, len(interests), len(struggling))
+
+        except Exception as e:
+            logger.warning("[Profile] Extraction failed for %s: %s", self.student_name, e)
 
     def get_memory_stats(self):
         """Get statistics about current conversation memory."""
@@ -1041,6 +1230,12 @@ class MimiLLMSession:
                     daemon=True,
                     name=f"summary-{self.session_id[:8]}",
                 ).start()
+                threading.Thread(
+                    target=self._extract_and_update_profile,
+                    args=(history_snapshot,),
+                    daemon=True,
+                    name=f"profile-{self.session_id[:8]}",
+                ).start()
 
                 return {"text": msg, "farewell": True, "image_url": None, "yt_video": None, "topic": "", "audio": None}
 
@@ -1059,8 +1254,8 @@ class MimiLLMSession:
             if self._is_recall_request(user_text):
                 topic_kw = self._extract_recall_topic(user_text)
                 if topic_kw and len(topic_kw) > 3:
-                    # "what did I ask about planets" → search by topic
-                    q, a = self._search_qa_by_topic(topic_kw)
+                    # "what did I ask about planets" → search by topic (full query used for embedding)
+                    q, a = self._search_qa_by_topic(topic_kw, full_query=user_text)
                 else:
                     # "repeat that" / "say again" → most recent exchange
                     q, a = self._get_last_qa()
@@ -1113,6 +1308,17 @@ class MimiLLMSession:
             assistant_response = result.get("text", "")
             if assistant_response:
                 self._add_to_history("assistant", assistant_response)
+
+            # Semantic memory: embed this Q&A pair for future recall (fire-and-forget,
+            # never blocks the response path — same daemon-thread pattern as summaries/profile).
+            if assistant_response and self.student_id:
+                import threading
+                threading.Thread(
+                    target=self._embed_and_store_qa,
+                    args=(user_text, assistant_response, topic),
+                    daemon=True,
+                    name=f"embed-{self.session_id[:8]}",
+                ).start()
 
             self.current_text   = assistant_response
             self.current_image  = result.get("image_url")

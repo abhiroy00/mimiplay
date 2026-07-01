@@ -1449,85 +1449,10 @@ def verify_video_token(video_id, token):
     except Exception:
         return False
 
-def _extract_and_update_student_profile(student_id, student_name: str, conversation_history: list):
-    """
-    Extract structured student facts from a session's conversation using Claude Haiku,
-    then merge them into the student_profiles MongoDB collection.
-    Runs in a background daemon thread — any failure is logged and swallowed.
-    Skipped if < 4 messages (not enough signal).
-    """
-    if not student_id or not conversation_history or len(conversation_history) < 4:
-        return
-    try:
-        turns = conversation_history[-20:]
-        transcript_lines = []
-        for turn in turns:
-            role = "Child" if turn.get("role") == "user" else "Mimi"
-            transcript_lines.append(f"{role}: {turn.get('content', '')[:200]}")
-        transcript = "\n".join(transcript_lines)
-
-        prompt = (
-            f"You are analyzing a conversation between an AI tutor named Mimi and a child named {student_name}.\n"
-            "Extract structured information about the child from this conversation.\n\n"
-            f"Conversation:\n{transcript}\n\n"
-            "Return ONLY valid JSON with these exact keys (use empty arrays/objects if no data found):\n"
-            '{"interests":["list of topics the child showed interest in, max 10"],'
-            '"struggling_topics":["topics the child found difficult, max 5"],'
-            '"progress":{"strengths":["things the child did well, max 5"],'
-            '"areas_to_improve":["areas needing improvement, max 5"]}}\n\n'
-            "Only include facts clearly evidenced in the conversation. Do not infer or guess."
-        )
-
-        if not _anthropic_available or not ANTHROPIC_API_KEY:
-            logger.debug("[Profile] Anthropic unavailable — skipping profile extraction")
-            return
-
-        client = _get_anthropic_client()
-        if not client:
-            return
-
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=400,
-            temperature=0.1,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        extracted = _parse_json(resp.content[0].text)
-
-        if not isinstance(extracted, dict):
-            logger.warning("[Profile] Haiku returned non-dict for %s", student_name)
-            return
-
-        from extensions import db as _ext_db
-        now = datetime.now(timezone.utc)
-
-        interests        = [s for s in extracted.get("interests", [])                       if isinstance(s, str)][:10]
-        struggling       = [s for s in extracted.get("struggling_topics", [])               if isinstance(s, str)][:5]
-        strengths        = [s for s in extracted.get("progress", {}).get("strengths", [])   if isinstance(s, str)][:5]
-        areas_to_improve = [s for s in extracted.get("progress", {}).get("areas_to_improve", []) if isinstance(s, str)][:5]
-
-        update: dict = {
-            "$set": {"name": student_name, "last_session_date": now.isoformat(), "updated_at": now.isoformat()},
-            "$inc": {"total_sessions": 1},
-        }
-        add_to_set: dict = {}
-        if interests:        add_to_set["interests"]               = {"$each": interests}
-        if struggling:       add_to_set["struggling_topics"]       = {"$each": struggling}
-        if strengths:        add_to_set["progress.strengths"]      = {"$each": strengths}
-        if areas_to_improve: add_to_set["progress.areas_to_improve"] = {"$each": areas_to_improve}
-        if add_to_set:
-            update["$addToSet"] = add_to_set
-
-        _ext_db["student_profiles"].update_one(
-            {"student_id": student_id},
-            update,
-            upsert=True,
-        )
-        logger.info("[Profile] Updated profile for %s (interests=%d, struggling=%d)",
-                    student_name, len(interests), len(struggling))
-
-    except Exception as e:
-        logger.warning("[Profile] Extraction failed for %s: %s", student_name, e)
+# NOTE: student-profile extraction now lives on MimiLLMSession
+# (_extract_and_update_profile in mimi_llm_session.py), triggered from
+# process_text()'s farewell branch — colocated with session-summary generation
+# to avoid a circular import back into app.py.
 
 
 @app.route('/api/mimi/test-youtube', methods=['GET'])
@@ -1583,18 +1508,27 @@ def stop_mimi_session():
         if session:
             session.session_ended = True
             conversation_history  = list(session.conversation_history)
-            student_id            = session.student_id
             student_name          = session.student_name or student_name
             _store.delete(session_id)
             logger.info("[stop-session] Removed session %s", session_id)
 
-            # Extract student profile in a background thread — skipped if < 4 messages
+            # Extract student profile + generate session summary in background threads.
+            # This endpoint previously only ran profile extraction (never summary generation) —
+            # the voice-farewell path in process_text() has the opposite gap (summary only, no
+            # profile). Both threads now run from both trigger points for symmetry.
             if len(conversation_history) >= 4:
                 import threading as _threading
                 _threading.Thread(
-                    target=_extract_and_update_student_profile,
-                    args=(student_id, student_name, conversation_history),
+                    target=session._extract_and_update_profile,
+                    args=(conversation_history,),
                     daemon=True,
+                    name=f"profile-{session_id[:8]}",
+                ).start()
+                _threading.Thread(
+                    target=session._generate_and_save_summary,
+                    args=(conversation_history,),
+                    daemon=True,
+                    name=f"summary-{session_id[:8]}",
                 ).start()
 
         # Send WhatsApp chat history if requested
