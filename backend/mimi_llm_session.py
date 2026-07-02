@@ -870,6 +870,15 @@ class MimiLLMSession:
             '{"text":"<your reply>","image_search_term":"<blank or search>","youtube_search_term":"<blank or search> for kids explained","topic":"<blank or topic>"}'
         )
 
+        table_rule = (
+            "MULTIPLICATION TABLES: If the user asks for a multiplication table (e.g. 'table of 5', 'paanch ka pahada'), "
+            "recite ALL 10 lines in Indian school chanting style using word forms, NOT digits. "
+            "Format: 'Five one za five.\\nFive two za ten.\\nFive three za fifteen.' … up to ten. "
+            "Use the English word for the number (Five, Six, Seven…). "
+            "For this case ONLY: skip the 35-word limit, skip the ending question, skip image/youtube fields (leave as \"\"), "
+            "and end with one short encouraging line like 'Great job, {name}! 🌟'."
+        ).replace("{name}", name)
+
         prompt = (
             f"{json_format}\n\n"
             f"{memory_prompt}\n\n{playful_prompt}\n\n"
@@ -878,9 +887,10 @@ class MimiLLMSession:
             f'RULES: Always say {name}\'s name somewhere in text. Vary openers. 1 cool fact. End with 1 question. Max 35 words in text. '
             f'Fill image_search_term AND youtube_search_term for any named thing, animal, place, or topic.\n'
             f"{media_rule}\n\n"
+            f"{table_rule}\n\n"
             f"IMPORTANT: Output ONLY the JSON object above — no explanations, no prose before or after the JSON."
         )
-        return prompt, 250
+        return prompt, 400
 
     # ── LLM helpers ───────────────────────────────────────────────────────────
 
