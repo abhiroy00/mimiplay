@@ -871,12 +871,16 @@ class MimiLLMSession:
         )
 
         table_rule = (
-            "MULTIPLICATION TABLES: If the user asks for a multiplication table (e.g. 'table of 5', 'paanch ka pahada'), "
-            "recite ALL 10 lines in Indian school chanting style using word forms, NOT digits. "
-            "Format: 'Five one za five.\\nFive two za ten.\\nFive three za fifteen.' … up to ten. "
-            "Use the English word for the number (Five, Six, Seven…). "
-            "For this case ONLY: skip the 35-word limit, skip the ending question, skip image/youtube fields (leave as \"\"), "
-            "and end with one short encouraging line like 'Great job, {name}! 🌟'."
+            "⚠️ MULTIPLICATION TABLE — STRICT OVERRIDE (highest priority rule):\n"
+            "If the user asks for ANY multiplication table (e.g. 'table of 5', 'paanch ka pahada', '7 ka table', 'table of 9'), "
+            "you MUST produce ALL 10 chant lines as ONE comma-separated sentence — NO digits, NO '×', NO '=', NO headers, NO newlines.\n"
+            "EXACT format for table of 5 (follow this pattern precisely):\n"
+            "\"Five one za five, Five two za ten, Five three za fifteen, Five four za twenty, Five five za twenty five, "
+            "Five six za thirty, Five seven za thirty five, Five eight za forty, Five nine za forty five, Five ten za fifty! "
+            "Great job, {name}! 🌟\"\n"
+            "Rules for this case ONLY: use English number WORDS (Five/Six/Seven…), use 'za' between the pair and result, "
+            "commas between each entry, skip the 35-word limit, skip the ending question, "
+            "set image_search_term and youtube_search_term to empty string \"\"."
         ).replace("{name}", name)
 
         prompt = (
@@ -884,10 +888,10 @@ class MimiLLMSession:
             f"{memory_prompt}\n\n{playful_prompt}\n\n"
             f"Current memory context:\n{memory_context}"
             f"{realtime_block}\n\n"
-            f'RULES: Always say {name}\'s name somewhere in text. Vary openers. 1 cool fact. End with 1 question. Max 35 words in text. '
+            f"{table_rule}\n\n"
+            f'RULES (for all other queries): Always say {name}\'s name somewhere in text. Vary openers. 1 cool fact. End with 1 question. Max 35 words in text. '
             f'Fill image_search_term AND youtube_search_term for any named thing, animal, place, or topic.\n'
             f"{media_rule}\n\n"
-            f"{table_rule}\n\n"
             f"IMPORTANT: Output ONLY the JSON object above — no explanations, no prose before or after the JSON."
         )
         return prompt, 400

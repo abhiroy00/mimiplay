@@ -287,6 +287,16 @@ const MimiChat = () => {
   const videoDirectRequestRef  = useRef(false)  // true when user's text explicitly asked for a video
   const mimiTextRef            = useRef('')     // mirror of mimiText state, readable in RAF/callbacks
   const audioSyncRAFRef        = useRef(null)   // requestAnimationFrame handle for karaoke sync
+  const pendingVideoPlayRef    = useRef(false)  // defer YouTube autoplay until Mimi TTS finishes
+
+  // Track screen size to render only ONE YouTube iframe — hidden iframes still play audio
+  const [isLgScreen, setIsLgScreen] = useState(() => window.innerWidth >= 1024)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const handler = (e) => setIsLgScreen(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   useEffect(() => {
     chatHistoryRef.current = chatHistory
@@ -516,6 +526,12 @@ const MimiChat = () => {
           wasInterruptedRef.current = false
           return
         }
+        // Mimi introduced a video — now play it (audio stays clean: TTS done, YouTube starts)
+        if (pendingVideoPlayRef.current) {
+          pendingVideoPlayRef.current = false
+          setPlaying(true)
+          return
+        }
         if (!sessionIdRef.current && !onDone) return
         setVadStatus('listening')
         if (onDone) {
@@ -677,7 +693,12 @@ const MimiChat = () => {
         setYtVideo(videoUrl)
         if (videoUrl) {
           if (videoDirectRequestRef.current) {
-            setPlaying(true)               // user asked for it — play immediately
+            if (data.audio) {
+              pendingVideoPlayRef.current = true  // TTS plays first, video after it ends
+              setPlaying(false)
+            } else {
+              setPlaying(true)  // no TTS — play immediately
+            }
           } else {
             setPlaying(false)              // proactive video — ask first
             videoConfirmModeRef.current = true
@@ -767,6 +788,7 @@ const MimiChat = () => {
   // "bye" is exempt from the window — it is always processed immediately.
   const doInterrupt = useCallback(() => {
     clearInterval(vadIntervalRef.current)
+    pendingVideoPlayRef.current = false  // cancel deferred video play if user interrupts
     if (audioSyncRAFRef.current !== null) {
       cancelAnimationFrame(audioSyncRAFRef.current)
       audioSyncRAFRef.current = null
@@ -938,6 +960,7 @@ const MimiChat = () => {
         if (videoConfirmModeRef.current && result.isFinal) {
           if (_YES_VIDEO_RE.test(lower)) {
             videoConfirmModeRef.current = false
+            if (isMimiSpeakingRef.current && doInterruptRef.current) doInterruptRef.current()
             setPlaying(true)
             return
           }
@@ -1391,13 +1414,76 @@ const MimiChat = () => {
       ──────────────────────────────────────────────────────────── */}
       <div className="absolute inset-0 flex flex-col">
 
+        {/* ── Mobile top media bar (image / video) — hidden on desktop ── */}
+        <div className="lg:hidden flex-shrink-0 w-full px-4 pt-12 sm:pt-14 z-20">
+          <AnimatePresence mode="wait">
+            {/* Playing video — mobile only */}
+            {!isLgScreen && ytVideo && playing && (
+              <Motion.div
+                key="mob-top-video"
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0,   scale: 1 }}
+                exit={{ opacity: 0,    y: -10, scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+              >
+                <div className="rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/40">
+                  <iframe
+                    src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`}
+                    title="YouTube video"
+                    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
+                    className="w-full h-[150px] sm:h-[200px] border-0 block"
+                  />
+                </div>
+                <a href={`https://www.youtube.com/watch?v=${extractYoutubeId(ytVideo)}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="block text-center text-xs text-white/70 font-semibold mt-1 hover:underline drop-shadow">
+                  Watch on YouTube ↗
+                </a>
+              </Motion.div>
+            )}
+            {/* Image — mobile only */}
+            {imageUrl && !playing && (
+              <Motion.div
+                key="mob-top-image"
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0,   scale: 1 }}
+                exit={{ opacity: 0,    y: -10, scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+              >
+                <img src={imageUrl} alt="mimi result" referrerPolicy="no-referrer"
+                  className="w-full max-h-[110px] sm:max-h-[150px] object-cover rounded-2xl shadow-2xl ring-2 ring-white/30" />
+              </Motion.div>
+            )}
+            {/* Video pending — mobile only */}
+            {ytVideo && !playing && (
+              <Motion.div
+                key="mob-top-pending"
+                initial={{ opacity: 0, scale: 0.94 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0,    scale: 0.94 }}
+                transition={{ duration: 0.3 }}
+                className="flex items-center justify-between gap-3 bg-black/50 backdrop-blur-sm rounded-2xl px-4 py-3"
+              >
+                <p className="text-xs sm:text-sm text-yellow-200 font-semibold">🎬 I found a video! Want me to play it?</p>
+                <button
+                  onClick={() => { videoConfirmModeRef.current = false; if (isMimiSpeakingRef.current && doInterruptRef.current) doInterruptRef.current(); setPlaying(true) }}
+                  className="flex-shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm font-bold rounded-full shadow transition-colors">
+                  ▶ Play
+                </button>
+              </Motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         {/* ── Content row / columns ───────────────────────────────── */}
-        <div className="flex-1 flex items-end lg:items-center">
+        <div className="flex-1 flex items-center">
 
           {/* LEFT column — desktop video panel ─────────────────── */}
           <div className="hidden lg:flex flex-1 flex-col items-center justify-center px-6 xl:px-10 gap-4">
             <AnimatePresence>
-              {ytVideo && playing && (
+              {isLgScreen && ytVideo && playing && (
                 <Motion.div
                   key="desk-video"
                   initial={{ opacity: 0, x: -20, scale: 0.95 }}
@@ -1435,7 +1521,7 @@ const MimiChat = () => {
                   <span className="text-4xl">🎬</span>
                   <p className="text-sm text-yellow-200 font-semibold">I found a video!<br/>Want me to play it?</p>
                   <button
-                    onClick={() => { videoConfirmModeRef.current = false; setPlaying(true) }}
+                    onClick={() => { videoConfirmModeRef.current = false; if (isMimiSpeakingRef.current && doInterruptRef.current) doInterruptRef.current(); setPlaying(true) }}
                     className="flex items-center gap-2 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-full shadow transition-colors">
                     ▶ Play Video
                   </button>
@@ -1444,42 +1530,8 @@ const MimiChat = () => {
             </AnimatePresence>
           </div>
 
-          {/* CENTER column — character (+ mobile media above it) ── */}
-          <div className="flex flex-col items-center lg:flex-none">
-
-            {/* Mobile/tablet: video above character */}
-            <div className="lg:hidden w-full max-w-[320px] sm:max-w-[460px] px-3 sm:px-0">
-              <AnimatePresence>
-                {ytVideo && playing && (
-                  <Motion.div
-                    key="mob-video"
-                    initial={{ opacity: 0, y: 16, scale: 0.94 }}
-                    animate={{ opacity: 1, y: 0,   scale: 1 }}
-                    exit={{ opacity: 0,    y: 16,  scale: 0.94 }}
-                    transition={{ type: 'spring', stiffness: 260, damping: 22 }}
-                    className="mb-2 sm:mb-3"
-                  >
-                    <div className="rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/40">
-                      <iframe
-                        src={`https://www.youtube.com/embed/${extractYoutubeId(ytVideo)}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`}
-                        title="YouTube video"
-                        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                        allowFullScreen
-                        referrerPolicy="no-referrer-when-downgrade"
-                        className="w-full h-[160px] sm:h-[220px] border-0 block"
-                      />
-                    </div>
-                    <a href={`https://www.youtube.com/watch?v=${extractYoutubeId(ytVideo)}`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="block text-center text-xs text-white/80 font-semibold mt-1 hover:underline drop-shadow">
-                      Watch on YouTube ↗
-                    </a>
-                  </Motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Mimi Character */}
+          {/* CENTER column — character ───────────────────────── */}
+          <div className="flex items-center justify-center lg:flex-none">
             <MimiCharacter
               vadStatus={vadStatus}
               isSpeaking={isSpeaking}
@@ -1542,29 +1594,6 @@ const MimiChat = () => {
                     })()}
                   </p>
 
-                  {/* Image (mobile — shown inside caption bar, not in column) */}
-                  {imageUrl && !playing && (
-                    <Motion.div className="mt-3 lg:hidden"
-                      initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.4 }}>
-                      <img src={imageUrl} alt="mimi result" referrerPolicy="no-referrer"
-                        className="w-full max-h-28 sm:max-h-40 object-cover mx-auto rounded-xl shadow-lg" />
-                    </Motion.div>
-                  )}
-
-                  {/* Video pending (mobile only — desktop shows in left column) */}
-                  {ytVideo && !playing && (
-                    <Motion.div className="mt-2 flex flex-col items-center gap-2 lg:hidden"
-                      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}>
-                      <p className="text-xs sm:text-sm text-yellow-200 font-semibold">🎬 I found a video! Want me to play it?</p>
-                      <button
-                        onClick={() => { videoConfirmModeRef.current = false; setPlaying(true) }}
-                        className="flex items-center gap-2 px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm font-bold rounded-full shadow transition-colors">
-                        ▶ Play Video
-                      </button>
-                    </Motion.div>
-                  )}
                 </div>
               </Motion.div>
             )}
