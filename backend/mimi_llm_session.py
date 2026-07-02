@@ -871,17 +871,17 @@ class MimiLLMSession:
         )
 
         table_rule = (
-            "⚠️ MULTIPLICATION TABLE — STRICT OVERRIDE (highest priority rule):\n"
-            "If the user asks for ANY multiplication table (e.g. 'table of 5', 'paanch ka pahada', '7 ka table', 'table of 9'), "
-            "you MUST produce ALL 10 chant lines as ONE comma-separated sentence — NO digits, NO '×', NO '=', NO headers, NO newlines.\n"
-            "EXACT format for table of 5 (follow this pattern precisely):\n"
-            "\"Five one za five, Five two za ten, Five three za fifteen, Five four za twenty, Five five za twenty five, "
-            "Five six za thirty, Five seven za thirty five, Five eight za forty, Five nine za forty five, Five ten za fifty! "
-            "Great job, {name}! 🌟\"\n"
-            "Rules for this case ONLY: use English number WORDS (Five/Six/Seven…), use 'za' between the pair and result, "
-            "commas between each entry, skip the 35-word limit, skip the ending question, "
-            "set image_search_term and youtube_search_term to empty string \"\"."
-        ).replace("{name}", name)
+            "⚠️ MULTIPLICATION TABLE — HIGHEST PRIORITY OVERRIDE:\n"
+            "If the user asks for ANY multiplication table ('table of 5', 'paanch ka pahada', '7 ka table', etc.), "
+            "output EXACTLY this JSON structure — replace the number words for whichever number was requested:\n"
+            '{"text":"Five one za five, Five two za ten, Five three za fifteen, Five four za twenty, '
+            'Five five za twenty five, Five six za thirty, Five seven za thirty five, Five eight za forty, '
+            f'Five nine za forty five, Five ten za fifty! Great job, {name}! 🌟",'
+            '"image_search_term":"","youtube_search_term":"","topic":"multiplication"}\n'
+            "STRICT RULES: number WORDS only (Five/Six/Seven…) — NEVER digits, NEVER × or =, NEVER a header line like "
+            "'Here is the table of 5:', NEVER newlines inside text. Entries separated by commas. "
+            "Adjust all words for the actual number requested (e.g. table of 7 → 'Seven one za seven, Seven two za fourteen…')."
+        )
 
         prompt = (
             f"{json_format}\n\n"

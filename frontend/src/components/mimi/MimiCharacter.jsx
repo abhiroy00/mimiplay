@@ -130,6 +130,8 @@ const MimiCharacter = ({ vadStatus = 'idle', isSpeaking = false, sessionState = 
 
   return (
     <div className="relative z-20 flex-shrink-0 select-none w-[220px] h-[280px] sm:w-[300px] sm:h-[380px] md:w-[360px] md:h-[450px] lg:w-[420px] lg:h-[520px]">
+      {/* Ground shadow — gives Mimi dimension and anchors her to the floor */}
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[55%] h-3 sm:h-4 rounded-full bg-black/25 blur-md pointer-events-none" />
 
       {/* ── Hidden preloader: forces browser to download all videos on mount ── */}
       <div style={{ display: 'none' }} aria-hidden="true">

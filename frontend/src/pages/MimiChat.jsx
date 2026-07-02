@@ -236,8 +236,30 @@ const MimiChat = () => {
   // Image → then Video sequence:
   // Reset playing state when video is cleared
   useEffect(() => { if (!ytVideo) setPlaying(false) }, [ytVideo])
+
+  // Stop mic while YouTube plays — speaker audio would get transcribed otherwise
+  useEffect(() => {
+    isVideoPlayingRef.current = playing
+    if (!sessionIdRef.current) return
+    if (playing) {
+      // Kill recognition immediately; onend will not restart because of isVideoPlayingRef guard
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop() } catch {}
+        recognitionRef.current = null
+      }
+      clearInterval(vadIntervalRef.current)
+      setVadStatus('idle')
+    } else {
+      // Video stopped — wait a moment for speaker audio to clear, then resume
+      setTimeout(() => {
+        if (sessionIdRef.current && !isVideoPlayingRef.current && startVADRef.current) {
+          startVADRef.current()
+        }
+      }, 600)
+    }
+  }, [playing])
   const [displayedText, setDisplayedText] = useState('')
-  const [isTyping,      setIsTyping]      = useState(false)
+  const [_isTyping,     setIsTyping]      = useState(false)
   const [isSpeaking,    setIsSpeaking]    = useState(false) // ← Mimi bol rahi hai?
   const [chatHistory,   setChatHistory]   = useState([])
   const [_lastQuestion, setLastQuestion]  = useState('') // ← current question track
@@ -288,6 +310,7 @@ const MimiChat = () => {
   const mimiTextRef            = useRef('')     // mirror of mimiText state, readable in RAF/callbacks
   const audioSyncRAFRef        = useRef(null)   // requestAnimationFrame handle for karaoke sync
   const pendingVideoPlayRef    = useRef(false)  // defer YouTube autoplay until Mimi TTS finishes
+  const isVideoPlayingRef      = useRef(false)  // true while YouTube iframe is playing — blocks mic
 
   // Track screen size to render only ONE YouTube iframe — hidden iframes still play audio
   const [isLgScreen, setIsLgScreen] = useState(() => window.innerWidth >= 1024)
@@ -954,6 +977,9 @@ const MimiChat = () => {
           return
         }
 
+        // ── Drop all speech while YouTube video is playing ────────────
+        if (isVideoPlayingRef.current) return
+
         // ── Video confirmation intercept ───────────────────────────────
         // When Mimi proactively returned a video, we ask "want to play it?"
         // A YES-like word triggers play; NO-like clears the video.
@@ -1016,11 +1042,11 @@ const MimiChat = () => {
       }
       if (pendingText.trim() && !isMimiSpeakingRef.current) _sendNow(pendingText)
       pendingText = ''
-      // Restart recognition if this session is still the active one
-      if (sessionIdRef.current && !isMimiSpeakingRef.current && recognitionRef.current === recognition) {
+      // Restart recognition if this session is still the active one and no video is playing
+      if (sessionIdRef.current && !isMimiSpeakingRef.current && !isVideoPlayingRef.current && recognitionRef.current === recognition) {
         // 150ms pause prevents tight crash-loop if Chrome keeps erroring
         setTimeout(() => {
-          if (sessionIdRef.current && !isMimiSpeakingRef.current) {
+          if (sessionIdRef.current && !isMimiSpeakingRef.current && !isVideoPlayingRef.current) {
             try { recognition.start() } catch { if (startVADRef.current) startVADRef.current() }
           }
         }, 150)
@@ -1478,10 +1504,10 @@ const MimiChat = () => {
         </div>
 
         {/* ── Content row / columns ───────────────────────────────── */}
-        <div className="flex-1 flex items-center">
+        <div className="flex-1 flex items-end justify-center">
 
           {/* LEFT column — desktop video panel ─────────────────── */}
-          <div className="hidden lg:flex flex-1 flex-col items-center justify-center px-6 xl:px-10 gap-4">
+          <div className="hidden lg:flex flex-1 flex-col items-center justify-end pb-6 px-6 xl:px-10 gap-4">
             <AnimatePresence>
               {isLgScreen && ytVideo && playing && (
                 <Motion.div
@@ -1540,7 +1566,7 @@ const MimiChat = () => {
           </div>
 
           {/* RIGHT column — desktop image panel ────────────────── */}
-          <div className="hidden lg:flex flex-1 flex-col items-center justify-center px-6 xl:px-10">
+          <div className="hidden lg:flex flex-1 flex-col items-center justify-end pb-6 px-6 xl:px-10">
             <AnimatePresence>
               {imageUrl && !playing && (
                 <Motion.div
